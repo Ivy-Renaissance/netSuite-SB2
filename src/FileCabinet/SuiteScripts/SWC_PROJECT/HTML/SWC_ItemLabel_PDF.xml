@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">
+<pdfset>
+    <#list data.items as item>
+    <pdf>
+        <head>
+            <style type="text/css">
+                body {
+                    font-family: sans-serif, Microsoft SimSun, stsong, hygothic;
+                    font-size: ${data.config.fontSize}pt;
+                    margin: 0;
+                    padding: 0;
+                }
+                .label-container {
+                    width: ${data.config.width}mm;
+                    height: ${data.config.height}mm;
+                    text-align: center;
+                    vertical-align: middle;
+                    padding: 1mm;
+                    box-sizing: border-box;
+                    display: block;
+                }
+                .barcode {
+                    width: 100%;
+                    text-align: center;
+                    margin-top: 2mm;
+                }
+                .item-name {
+                    font-weight: bold;
+                    margin-bottom: 1mm;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+                .item-sku {
+                    margin-bottom: 1mm;
+                }
+                .item-price {
+                    color: red;
+                    font-weight: bold;
+                }
+            </style>
+        </head>
+        <body width="${data.config.width}mm" height="${data.config.height}mm" padding="0">
+            <div class="label-container">
+                <#if data.config.showName>
+                    <div class="item-name">${item.name}</div>
+                </#if>
+                
+                <div class="barcode">
+                    <barcode codetype="${data.config.barcodeType}" showtext="false" value="${item.sku}" width="80%" height="10mm"/>
+                </div>
+
+                <#if data.config.showSku>
+                    <div class="item-sku">${item.sku}</div>
+                </#if>
+
+                <#if data.config.showPrice && item.price?has_content>
+                    <div class="item-price">价格: ${item.price}</div>
+                </#if>
+            </div>
+        </body>
+    </pdf>
+    </#list>
+</pdfset>

@@ -1,0 +1,336 @@
+=<html xmlns="http://www.w3.org/TR/REC-html40" xmlns:o="urn:schemas-microsoft-com:office:office"
+       xmlns:x="urn:schemas-microsoft-com:office:excel">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="generator" content="PhpSpreadsheet, https://github.com/PHPOffice/PhpSpreadsheet">
+    <meta name="company" content="Microsoft Corporation"/>
+    <!--[if gte mso 9]>
+    <xml>
+        <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+                <x:ExcelWorksheet>
+                    <x:Name>采购订单数据</x:Name>
+                    <x:WorksheetOptions>
+                        <x:FitToPage/>
+                        <x:Print>
+                            <x:FitWidth>1</x:FitWidth>
+                            <x:FitHeight>0</x:FitHeight>
+                            <x:ValidPrinterInfo/>
+                            <x:PaperSizeIndex>9</x:PaperSizeIndex>
+                            <x:Scale>85</x:Scale>
+                            <x:HorizontalResolution>700</x:HorizontalResolution>
+                            <x:VerticalResolution>700</x:VerticalResolution>
+                            <x:LeftMargin>0.2</x:LeftMargin>
+                            <x:RightMargin>0.2</x:RightMargin>
+                            <x:TopMargin>0.2</x:TopMargin>
+                            <x:BottomMargin>0.2</x:LeftMargin>
+                        </x:Print>
+                        <x:Selected/>
+                        <x:Panes>
+                            <x:Pane>
+                                <x:Number>3</x:Number>
+                                <x:ActiveRow>1</x:ActiveRow>
+                                <x:ActiveCol>1</x:ActiveCol>
+                            </x:Pane>
+                        </x:Panes>
+                        <x:ProtectContents>False</x:ProtectContents>
+                        <x:ProtectObjects>False</x:ProtectObjects>
+                        <x:ProtectScenarios>False</x:ProtectScenarios>
+                    </x:WorksheetOptions>
+                </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+        </x:ExcelWorkbook>
+    </xml><![endif]-->
+    <style type="text/css">
+        body, table, td, tr {
+            margin: 0;
+            padding: 0;
+            font-family: Arial;
+            font-size: 12pt;
+            font-weight: normal;
+        }
+        #sheet0 {
+            width: 794px;
+            border-collapse: collapse;
+            table-layout: fixed;
+            height: 2000px !important; /* 表格整体高度进一步增加 */
+        }
+
+        #sheet0 tr {
+            height: auto !important;
+        }
+
+        #sheet0 td {
+            border: 1px solid #000;
+            padding: 8px;
+            vertical-align: top;
+        }
+        /* 表格基础样式 */
+        /*table {*/
+        /*    border-collapse: collapse;*/
+        /*    table-layout: fixed;*/
+        /*    width: 794px !important; !* A4宽度：794px (210mm) *!*/
+        /*    mso-displayed-decimal-separator: "\.";*/
+        /*    mso-displayed-thousand-separator: "\,";*/
+        /*}*/
+
+        /* 设置每列宽度，总宽794px */
+        .col-序号 { width: 50px; }
+        .col-SKU { width: 200px; }
+        .col-工厂型号 { width: 100px; }
+        .col-数量 { width: 80px; }
+        .col-单价 { width: 100px; }
+        .col-总金额 { width: 100px; }
+        .col-备注 { width: 164px; }
+
+        /* 单元格样式 */
+        td {
+            border: 1px solid #000000;
+            padding: 3px;
+            mso-number-format: "\@"; /* 文本格式 */
+        }
+
+        /* 行高设置 */
+        tr {
+            height: auto; /* 改为自动高度 */
+            mso-height-source: auto;
+        }
+
+        .title-row {
+            height: 200px !important;
+        }
+
+        .content-row {
+            height: 160px !important;
+        }
+
+        .footer-row {
+            height: auto !important; /* 改为自动高度 */
+            min-height: 6000px !important; /* 最小高度 */
+        }
+
+        /* 文本对齐 */
+        .font_center {
+            text-align: center;
+            mso-pattern: auto;
+        }
+
+        .font_left {
+            text-align: left;
+        }
+
+        .font_bold {
+            font-weight: bold;
+        }
+
+        /* 条款内容样式 - 修复：允许显示多行 */
+        .clause-content {
+            width: 100%;
+            word-wrap: break-word;
+            word-break: break-all;
+            white-space: normal !important; /* 关键：允许换行 */
+            overflow: visible !important; /* 关键：显示溢出内容 */
+            display: block;
+            min-height: 6000px; /* 最小高度 */
+            max-height: none !important; /* 不要限制最大高度 */
+            height: auto !important; /* 自动高度 */
+            line-height: 3; /* 行高 */
+            margin: 0;
+            padding: 0;
+        }
+
+        /* 修复表格单元格内的内容显示 */
+        td div {
+            white-space: normal !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+        }
+
+        /* 打印设置 */
+        @media print {
+            body {
+                width: 100% !important;
+                margin: 0 !important;
+            }
+
+            table {
+                width: 100% !important;
+                page-break-inside: avoid;
+            }
+
+            .clause-content {
+                width: 100%;
+                word-wrap: break-word;
+                word-break: break-all;
+                white-space: normal !important; /* 关键：允许换行 */
+                overflow: visible !important; /* 关键：显示溢出内容 */
+                display: block;
+                min-height: 6000px; /* 最小高度 */
+                max-height: none !important; /* 不要限制最大高度 */
+                height: auto !important; /* 自动高度 */
+                /*line-height: 3; !* 行高 *!*/
+                margin: 0;
+                padding: 0;
+            }
+            .footer-row td {
+                height: auto !important;
+                min-height: 6000px !important; /* 每个td最小高度3000px */
+                max-height: none !important;
+                white-space: normal !important;
+                /*padding: -40px !important;  增加内边距 */
+                font-size: 13pt !important;
+                vertical-align: top !important;
+            }
+        }
+        .footer-row td {
+            height: auto !important;
+            min-height: 6000px !important; /* 每个td最小高度3000px */
+            max-height: none !important;
+            white-space: normal !important;
+            /*padding: -40px !important;  增加内边距 */
+            font-size: 13pt !important;
+            vertical-align: top !important;
+        }
+
+        /* 页面设置 */
+        @page {
+            size: A4 portrait;
+            margin: 0.5cm;
+        }
+
+    </style>
+    <title>采购订单数据</title>
+</head>
+
+<body>
+<table id="sheet0" cellspacing="0" cellpadding="2">
+    <!-- 列宽定义 -->
+    <colgroup>
+        <col class="col-序号">
+        <col class="col-SKU">
+        <col class="col-工厂型号">
+        <col class="col-数量">
+        <col class="col-单价">
+        <col class="col-总金额">
+        <col class="col-备注">
+    </colgroup>
+
+    <tbody>
+    <!-- 标题行 -->
+    <tr class="title-row">
+        <td colspan="7" style="text-align: center; font-size:24pt; font-weight: bold; border: 2px solid #000000;">
+            ${data.subsidiaryName}采购单
+        </td>
+    </tr>
+
+    <!-- 供应商和时间行 -->
+    <tr class="content-row">
+        <td colspan="4" style="text-align: left; padding-left: 10px; border: 1px solid #000000;">
+            <span style="font-size:14pt">供应商:&nbsp;&nbsp;&nbsp;${data.entityName}</span>
+        </td>
+        <td colspan="3" style="text-align: left; padding-left: 10px; border: 1px solid #000000;">
+            <span style="font-size:14pt">时间:&nbsp;&nbsp;&nbsp;${data.trandate}</span>
+        </td>
+    </tr>
+
+    <!-- 表头行 -->
+    <tr class="content-row">
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;">序号</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;">SKU</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;">工厂型号</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;">数量</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;">单价(含税)</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;">总金额(含税)</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;">备注</td>
+    </tr>
+
+    <!-- 数据行 -->
+    <#list data.lineData as it>
+    <tr class="content-row">
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000; mso-number-format:'0'">${it.lineNum}</td>
+        <td style="text-align: center; border: 1px solid #000000; mso-number-format:'\@'">&nbsp;${it.itemId}</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;"></td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000; mso-number-format:'0'">${it.qty}</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000; mso-number-format:'#,##0.00'">${it.unitPrice}</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000; mso-number-format:'#,##0.00'">${it.amount}</td>
+        <td style="text-align: center; font-size:14pt;"></td>
+    </tr>
+    </#list>
+
+    <!-- 合计行 -->
+    <tr class="content-row">
+        <td style="text-align: center; font-size:14pt; ">合计</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;"></td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;"></td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000; mso-number-format:'0'">${data.totalOrderQuantity}</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;"></td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000; mso-number-format:'#,##0.00'">${data.totalAmount}</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;"></td>
+    </tr>
+
+    <!-- 采购单信息行 -->
+    <tr class="content-row">
+        <td colspan="2" style="text-align: left; padding-left: 10px; font-size:14pt; border: 1px solid #000000;">
+            采购单:${data.tranidName}
+        </td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;"></td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;"></td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;"></td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;">${data.poName}</td>
+        <td style="text-align: center; font-size:14pt; border: 1px solid #000000;">电话${data.poPhone}</td>
+    </tr>
+
+    <!-- 条款和签名区域 -->
+    <tr class="footer-row">
+        <td colspan="7" style="text-align: left; font-size: 14pt; border: 1px solid #000000; vertical-align: top;">
+            <!-- 修复：使用pre-wrap保留格式并允许换行 -->
+            <div class="clause-content"
+                 style="
+                white-space: pre-wrap !important;
+                /*word-wrap: break-word !important;*/
+                /*word-break: break-all !important;*/
+                /*overflow: visible !important;*/
+                /*height: auto !important;*/
+                /*min-height: auto !important;*/
+                /*line-height: 2;*/
+                /*padding: 10px;*/
+                /*margin-bottom: 10px;*/
+            ">
+                ${data.clauseContent}
+            </div>
+            5.付款方式:<br><br>
+            6.账户名称:<br><br>
+            本协议一式两份，经双方签字后生效，不足之处双方协商补充。请签字回传<br><br>
+
+            <table style="border: none; width: 100%; font-size: 14pt; margin-top: 20px;">
+                <tr>
+                    <td colspan="2" style="border: none; width: 40%;">甲方盖章（公章、业务章）：</td>
+                    <td style="border: none; width: 5%;"></td>
+                    <td style="border: none; width: 5%;"></td>
+                    <td style="border: none; width: 5%;"></td>
+                    <td colspan="2" style="border: none; width: 40%;">乙方盖章（公章、业务章）：</td>
+                </tr>
+
+                <tr style="margin-top: 20px">
+                    <td colspan="2" style="border: none; width: 40%; padding-top: 40px;">对接人签字：</td>
+                    <td style="border: none; width: 5%;"></td>
+                    <td style="border: none; width: 5%;"></td>
+                    <td style="border: none; width: 5%;"></td>
+                    <td colspan="2" style="border: none; width: 40%; padding-top: 40px;">对接人签字：</td>
+                </tr>
+
+                <tr  style="margin-top: 20px">
+                    <td colspan="2" style="border: none; width: 40%; padding-top: 40px;">确认时间：</td>
+                    <td style="border: none; width: 5%;"></td>
+                    <td style="border: none; width: 5%;"></td>
+                    <td style="border: none; width: 5%;"></td>
+                    <td colspan="2" style="border: none; width: 40%; padding-top: 40px;">确认时间：</td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    </tbody>
+</table>
+</body>
+</html>

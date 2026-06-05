@@ -1,0 +1,79 @@
+<?xml version="1.0"?><!DOCTYPE pdf PUBLIC "-//big.faceless.org//report" "report-1.1.dtd">
+<pdfset>
+	{@each barcodes as barcode}
+	<pdf>
+		<head>
+			<style type="text/css">
+				table {
+					font-family: sans-serif, Microsoft SimSun, stsong, hygothic;
+					font-size: 3mm;
+					table-layout: fixed;
+				}
+				table, td {
+					border: 0.25mm solid black;
+					border-collapse: collapse;
+					text-align: center;
+					vertical-align: middle;
+				}
+			</style>
+		</head>
+		<body padding="1mm 1mm 1mm 1.5mm" width="70mm" height="50mm">
+		<table>
+			<tr style="width: 66mm; height: 10mm">
+				<td colspan="2" style="width: 17mm">
+					<p align="center" style="font-size: 4mm;">固定资产标识卡</p>
+				</td>
+			</tr>
+			<tr style="width: 66mm; height: 6mm">
+				<td style="width: 17mm">
+					<p align="center" style="font-size: 3mm;">资产名称</p>
+				</td>
+				<td style="width: 49mm">
+					<p style="font-size: 3mm;">${barcode.name}</p>
+				</td>
+			</tr>
+			<tr style="width: 66mm; height: 6mm">
+				<td style="width: 17mm">
+					<p align="center" style="font-size: 3mm;">资产编号</p>
+				</td>
+				<td style="width: 49mm">
+					<p style="font-size: 3mm;">${barcode.code}</p>
+				</td>
+			</tr>
+			<tr style="width: 66mm; height: 6mm">
+				<td style="width: 17mm">
+					<p align="center" style="font-size: 3mm;">规格型号</p>
+				</td>
+				<td style="width: 49mm">
+					<p style="font-size: 3mm;">${barcode.model}</p>
+				</td>
+			</tr>
+			<tr style="width: 66mm; height: 6mm">
+				<td style="width: 17mm">
+					<p align="center" style="font-size: 3mm;">使用部门</p>
+				</td>
+				<td style="width: 49mm">
+					<p style="font-size: 3mm;"></p>
+				</td>
+			</tr>
+			<tr style="width: 66mm; height: 6mm">
+				<td style="width: 17mm">
+					<p align="center" style="font-size: 3mm;">使用时间</p>
+				</td>
+				<td style="width: 49mm">
+					<p style="font-size: 3mm;"></p>
+				</td>
+			</tr>
+			<tr style="width: 66mm; height: 6mm">
+				<td style="width: 17mm">
+					<p align="center" style="font-size: 3mm;">使用人</p>
+				</td>
+				<td style="width: 49mm">
+					<p style="font-size: 3mm;"></p>
+				</td>
+			</tr>
+		</table>
+		</body>
+	</pdf>
+	{@/each}
+</pdfset>

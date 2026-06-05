@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>货品标签打印系统</title>
+    <!-- Use local or standard CDNs for Bootstrap if available, but for NetSuite, CDNs are common -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body { font-family: "Microsoft YaHei", sans-serif; background-color: #f4f7f9; padding: 20px; }
+        .card { border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .card-header { background-color: #007bff; color: white; border-radius: 8px 8px 0 0; font-weight: bold; }
+        .item-list-container { height: 400px; overflow-y: auto; }
+        .table thead th { position: sticky; top: 0; background: #eee; z-index: 10; }
+        .label-preview { border: 1px dashed #ccc; padding: 10px; text-align: center; margin-top: 10px; background: white; }
+        .btn-print { width: 100%; font-size: 1.2rem; }
+        #loadingOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.7); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .config-item { margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+    <div class="spinner-border text-primary" role="status">
+        <span class="sr-only">加载中...</span>
+    </div>
+</div>
+
+<div class="container-fluid">
+    <div class="row">
+        <!-- Item Selection Module -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">1. 选择货品</div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <input type="text" id="searchInput" class="form-control" placeholder="输入名称或 SKU 搜索...">
+                        </div>
+                        <div class="col-md-6 text-right">
+                            <button id="searchBtn" class="btn btn-primary">搜索</button>
+                            <button id="selectAllBtn" class="btn btn-outline-secondary">全选</button>
+                            <button id="deselectAllBtn" class="btn btn-outline-secondary">取消全选</button>
+                        </div>
+                    </div>
+                    <div class="item-list-container">
+                        <table class="table table-hover" id="itemTable">
+                            <thead>
+                                <tr>
+                                    <th>选择</th>
+                                    <th>SKU</th>
+                                    <th>名称</th>
+                                    <th>类别</th>
+                                    <th>打印数量</th>
+                                </tr>
+                            </thead>
+                            <tbody id="itemTableBody">
+                                <!-- Data will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-2 text-muted">已选择: <span id="selectedCount">0</span> 个货品</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Label Design & Print Module -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">2. 标签设计与打印</div>
+                <div class="card-body">
+                    <div class="config-item">
+                        <label>标签尺寸 (mm)</label>
+                        <div class="input-group">
+                            <input type="number" id="labelWidth" class="form-control" value="40" placeholder="宽">
+                            <div class="input-group-append"><span class="input-group-text">×</span></div>
+                            <input type="number" id="labelHeight" class="form-control" value="30" placeholder="高">
+                        </div>
+                    </div>
+                    <div class="config-item">
+                        <label>条形码格式</label>
+                        <select id="barcodeType" class="form-control">
+                            <option value="code128">Code 128 (推荐)</option>
+                            <option value="ean13">EAN-13</option>
+                            <option value="upca">UPC-A</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label>显示字段</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="showName" checked>
+                            <label class="form-check-input" for="showName">货品名称</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="showSku" checked>
+                            <label class="form-check-input" for="showSku">SKU 编码</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="showPrice">
+                            <label class="form-check-input" for="showPrice">价格</label>
+                        </div>
+                    </div>
+                    <div class="config-item">
+                        <label>字体大小 (pt)</label>
+                        <input type="number" id="fontSize" class="form-control" value="8">
+                    </div>
+
+                    <hr>
+                    <button type="button" id="printBtn" class="btn btn-success btn-print">立即打印 PDF</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // In NetSuite Suitelet, the URL is the same.
+    const SUITELET_URL = window.location.href;
+
+    const state = {
+        items: [],
+        selected: new Set()
+    };
+
+    // DOM Elements
+    const itemTableBody = document.getElementById('itemTableBody');
+    const selectedCountSpan = document.getElementById('selectedCount');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    const searchInput = document.getElementById('searchInput');
+
+    // Load items on startup
+    async function loadItems(query = '') {
+        loadingOverlay.style.display = 'flex';
+        try {
+            const url = new URL(SUITELET_URL);
+            url.searchParams.set('action', 'getItems');
+            if (query) url.searchParams.set('search', query);
+            
+            const response = await fetch(url.toString());
+            const data = await response.json();
+            state.items = data;
+            renderItems();
+        } catch (e) {
+            console.error(e);
+            alert('获取货品数据失败，请检查网络或 Suitelet 权限。');
+        } finally {
+            loadingOverlay.style.display = 'none';
+        }
+    }
+
+    function renderItems() {
+        itemTableBody.innerHTML = '';
+        state.items.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="checkbox" class="item-checkbox" data-id="${item.id}" ${state.selected.has(item.id) ? 'checked' : ''}></td>
+                <td>${item.sku}</td>
+                <td>${item.name}</td>
+                <td>${item.category || '-'}</td>
+                <td><input type="number" class="form-control form-control-sm item-qty" data-id="${item.id}" value="1" style="width: 60px;"></td>
+            `;
+            itemTableBody.appendChild(tr);
+        });
+        updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+        selectedCountSpan.innerText = state.selected.size;
+    }
+
+    let lastChecked = null;
+
+    // Event Listeners
+    document.addEventListener('click', (e) => {
+        if (e.target.classList.contains('item-checkbox')) {
+            const checkboxes = Array.from(document.querySelectorAll('.item-checkbox'));
+            
+            if (e.shiftKey && lastChecked) {
+                let start = checkboxes.indexOf(e.target);
+                let end = checkboxes.indexOf(lastChecked);
+                
+                checkboxes.slice(Math.min(start, end), Math.max(start, end) + 1).forEach(cb => {
+                    cb.checked = lastChecked.checked;
+                    const id = cb.dataset.id;
+                    if (cb.checked) state.selected.add(id);
+                    else state.selected.delete(id);
+                });
+            } else {
+                const id = e.target.dataset.id;
+                if (e.target.checked) state.selected.add(id);
+                else state.selected.delete(id);
+            }
+            
+            lastChecked = e.target;
+            updateSelectedCount();
+        }
+    });
+
+    document.getElementById('selectAllBtn').onclick = () => {
+        document.querySelectorAll('.item-checkbox').forEach(cb => {
+            cb.checked = true;
+            state.selected.add(cb.dataset.id);
+        });
+        updateSelectedCount();
+    };
+
+    document.getElementById('deselectAllBtn').onclick = () => {
+        document.querySelectorAll('.item-checkbox').forEach(cb => {
+            cb.checked = false;
+            state.selected.delete(cb.dataset.id);
+        });
+        updateSelectedCount();
+    };
+
+    document.getElementById('searchBtn').onclick = () => {
+        loadItems(searchInput.value);
+    };
+
+    document.getElementById('printBtn').onclick = async (e) => {
+        if (e) e.preventDefault();
+        
+        if (state.selected.size === 0) {
+            alert('请至少选择一个货品。');
+            return;
+        }
+
+        const selectedData = [];
+        state.selected.forEach(id => {
+            const item = state.items.find(i => i.id === id);
+            const qtyInput = document.querySelector(`.item-qty[data-id="${id}"]`);
+            if (item) {
+                selectedData.push({
+                    ...item,
+                    qty: qtyInput ? qtyInput.value : 1
+                });
+            }
+        });
+
+        const config = {
+            width: document.getElementById('labelWidth').value,
+            height: document.getElementById('labelHeight').value,
+            barcodeType: document.getElementById('barcodeType').value,
+            showName: document.getElementById('showName').checked,
+            showSku: document.getElementById('showSku').checked,
+            showPrice: document.getElementById('showPrice').checked,
+            fontSize: document.getElementById('fontSize').value
+        };
+
+        loadingOverlay.style.display = 'flex';
+        try {
+            const response = await fetch(SUITELET_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ items: selectedData, config: config })
+            });
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `标签打印_${new Date().getTime()}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            } else {
+                const text = await response.text();
+                alert('打印失败: ' + text);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('打印请求失败。');
+        } finally {
+            loadingOverlay.style.display = 'none';
+        }
+    };
+
+    // Initial load
+    loadItems();
+</script>
+
+</body>
+</html>
