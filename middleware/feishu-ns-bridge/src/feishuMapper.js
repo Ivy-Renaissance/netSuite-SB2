@@ -14,6 +14,11 @@ const FEISHU_WIDGET = {
     expectedPayDate: 'widget17804882408040001'
 }
 
+const WHOLE_ORDER_PREPAY_OPTION = {
+    yes: 'mpy0ly9k-e01d8onmt9-0',
+    no: 'mpy0ly9k-0n2qgzlu04ac-0'
+}
+
 function normalizeNsSubmit(body) {
     const applicant = body.applicant || {}
     const recordId = body.record_id || body.recordId || body.ns_record_id
@@ -76,7 +81,7 @@ function buildApprovalForm(payload) {
         {
             id: FEISHU_WIDGET.allQuantity,
             type: 'number',
-            value: payload.all_quantity || emptyValue
+            value: parseNumericValue(payload.all_quantity)
         },
         {
             id: FEISHU_WIDGET.paymentTerms,
@@ -91,7 +96,7 @@ function buildApprovalForm(payload) {
         {
             id: FEISHU_WIDGET.wholeOrderPrepay,
             type: 'radioV2',
-            value: payload.whole_order_prepay || emptyValue
+            value: normalizeRadioValue(payload.whole_order_prepay)
         },
         {
             id: FEISHU_WIDGET.wholeOrderPercent,
@@ -106,7 +111,7 @@ function buildApprovalForm(payload) {
         {
             id: FEISHU_WIDGET.expectedPayDate,
             type: 'date',
-            value: payload.date || emptyValue
+            value: payload.date || formatFeishuDate(new Date())
         }
     ]
 
@@ -339,6 +344,28 @@ function parseNumericValue(value) {
     }
 
     return 1
+}
+
+function normalizeRadioValue(value) {
+    const textValue = String(value || '').trim()
+
+    if (!textValue) {
+        return WHOLE_ORDER_PREPAY_OPTION.no
+    }
+
+    if (textValue === WHOLE_ORDER_PREPAY_OPTION.yes || textValue === WHOLE_ORDER_PREPAY_OPTION.no) {
+        return textValue
+    }
+
+    if (['true', 'T', 'yes', 'YES', '是'].includes(textValue)) {
+        return WHOLE_ORDER_PREPAY_OPTION.yes
+    }
+
+    if (['false', 'F', 'no', 'NO', '否'].includes(textValue)) {
+        return WHOLE_ORDER_PREPAY_OPTION.no
+    }
+
+    return WHOLE_ORDER_PREPAY_OPTION.no
 }
 
 function normalizeDepartmentInput(value) {

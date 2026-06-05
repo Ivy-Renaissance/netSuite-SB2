@@ -226,18 +226,18 @@ define([
         const value = prepayRecord.getValue({ fieldId })
 
         if (isEmptyFormValue(value)) {
-            return EMPTY_FORM_VALUE
+            return 0
         }
 
         const numberValue = Number(value)
 
-        return isNaN(numberValue) ? normalizeFormValue(value) : numberValue
+        return isNaN(numberValue) ? 0 : numberValue
     }
 
     const getDateFormValue = (prepayRecord, fieldId) => {
         const dateValue = formatDate(prepayRecord.getValue({ fieldId }))
 
-        return dateValue || EMPTY_FORM_VALUE
+        return dateValue || formatDate(new Date())
     }
 
     const extractCurrencyCode = (value) => {
@@ -305,7 +305,7 @@ define([
         const value = prepayRecord.getValue({ fieldId: PREPAY_FORM_FIELD.wholeOrderPrepay })
 
         if (isEmptyFormValue(value)) {
-            return EMPTY_FORM_VALUE
+            return PREPAY_WHOLE_ORDER_OPTION.no
         }
 
         if (value === true || value === 'T' || value === 'true' || value === '是') {
@@ -319,7 +319,7 @@ define([
         return getRadioOptionValue(getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.wholeOrderPrepay), {
             是: PREPAY_WHOLE_ORDER_OPTION.yes,
             否: PREPAY_WHOLE_ORDER_OPTION.no
-        })
+        }) || PREPAY_WHOLE_ORDER_OPTION.no
     }
 
     const buildAmountFormItem = (prepayRecord) => {
