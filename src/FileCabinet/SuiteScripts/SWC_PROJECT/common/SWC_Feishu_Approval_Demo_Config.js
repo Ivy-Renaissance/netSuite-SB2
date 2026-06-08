@@ -5,7 +5,7 @@
  * 飞书审批与 NetSuite「预付款申请订单」审批流 demo 的集中配置。
  *
  * 流程说明：
- * 1. User Event 读取这里的记录类型、字段 ID、飞书控件 ID，创建飞书审批实例。
+ * 1. User Event 读取这里的记录类型、字段 ID、状态和节点配置，创建飞书审批实例。
  * 2. 飞书审批节点回调 RESTlet 时，RESTlet 通过 node_id 找到当前节点配置。
  * 3. RESTlet 根据 APPROVE / REJECT / RETURN 计算要回填的 NetSuite 审批状态内部 ID。
  * 4. RESTlet 写入 custrecord_swc_advancepay_state，触发 NetSuite 工作流继续流转。
@@ -85,9 +85,11 @@ define([], () => {
     // 预付款申请进入这个状态时，UE 发起飞书审批实例。
     const START_APPROVAL_STATUS = STATUS.pendingDepartmentManager
 
-    // 飞书审批表单控件 ID，来自你提供的审批模板控件清单。
+    // 飞书审批表单控件 ID，仅供回调解析和兼容旧数据使用。
+    // 创建审批实例时，User Event 会先读取当前飞书审批定义，再按控件名称或 custom_id 动态匹配实际控件 ID。
     const FEISHU_WIDGET = {
         documentId: 'widget17803989748480001',
+        recordId: '',
         subsidiary: 'widget17804882691220001',
         vendor: 'widget17805552284650001',
         po: 'widget17804880175290001',
@@ -118,8 +120,12 @@ define([], () => {
     // returnStatus 是“打回”后要写入的 NS 状态。
     const NODE_BY_ID = {
         [FEISHU_NODE.departmentManager]: {
+            id: FEISHU_NODE.departmentManager,
+            currentStatus: STATUS.pendingDepartmentManager,
             code: 'DEPARTMENT_MANAGER',
+            codeAliases: ['DEPARTMENT_MANAGER_APPROVAL', 'DEPT_MANAGER'],
             name: '部门经理',
+            nameAliases: ['部门经理审批', '部门负责人', '部门负责人审批'],
             approveStatus: STATUS.pendingGeneralLedger,
             approveStatusText: STATUS_TEXT.pendingGeneralLedger,
             rejectStatus: STATUS.rejected,
@@ -128,8 +134,12 @@ define([], () => {
             returnStatusText: STATUS_TEXT.returned
         },
         [FEISHU_NODE.generalLedger]: {
+            id: FEISHU_NODE.generalLedger,
+            currentStatus: STATUS.pendingGeneralLedger,
             code: 'GENERAL_LEDGER',
+            codeAliases: ['GENERAL_LEDGER_APPROVAL', 'GL'],
             name: '总账审批',
+            nameAliases: ['总账', '总账会计', '总账会计审批'],
             approveStatus: STATUS.pendingFinanceManager,
             approveStatusText: STATUS_TEXT.pendingFinanceManager,
             rejectStatus: STATUS.rejected,
@@ -138,8 +148,12 @@ define([], () => {
             returnStatusText: STATUS_TEXT.returned
         },
         [FEISHU_NODE.financeManager]: {
+            id: FEISHU_NODE.financeManager,
+            currentStatus: STATUS.pendingFinanceManager,
             code: 'FINANCE_MANAGER',
+            codeAliases: ['FINANCE_MANAGER_APPROVAL'],
             name: '财务经理审批',
+            nameAliases: ['财务经理'],
             approveStatus: STATUS.pendingFinanceDirector,
             approveStatusText: STATUS_TEXT.pendingFinanceDirector,
             rejectStatus: STATUS.rejected,
@@ -148,8 +162,12 @@ define([], () => {
             returnStatusText: STATUS_TEXT.returned
         },
         [FEISHU_NODE.financeDirector]: {
+            id: FEISHU_NODE.financeDirector,
+            currentStatus: STATUS.pendingFinanceDirector,
             code: 'FINANCE_DIRECTOR',
+            codeAliases: ['FINANCE_DIRECTOR_APPROVAL'],
             name: '财务总监审批',
+            nameAliases: ['财务总监'],
             approveStatus: STATUS.pendingViceGeneralManager,
             approveStatusText: STATUS_TEXT.pendingViceGeneralManager,
             rejectStatus: STATUS.rejected,
@@ -158,8 +176,12 @@ define([], () => {
             returnStatusText: STATUS_TEXT.returned
         },
         [FEISHU_NODE.viceGeneralManager]: {
+            id: FEISHU_NODE.viceGeneralManager,
+            currentStatus: STATUS.pendingViceGeneralManager,
             code: 'VICE_GENERAL_MANAGER',
+            codeAliases: ['VICE_GENERAL_MANAGER_APPROVAL', 'DEPUTY_GENERAL_MANAGER'],
             name: '副总经理审批',
+            nameAliases: ['副总经理'],
             approveStatus: STATUS.pendingGeneralManager,
             approveStatusText: STATUS_TEXT.pendingGeneralManager,
             rejectStatus: STATUS.rejected,
@@ -168,8 +190,12 @@ define([], () => {
             returnStatusText: STATUS_TEXT.returned
         },
         [FEISHU_NODE.generalManager]: {
+            id: FEISHU_NODE.generalManager,
+            currentStatus: STATUS.pendingGeneralManager,
             code: 'GENERAL_MANAGER',
+            codeAliases: ['GENERAL_MANAGER_APPROVAL', 'GM'],
             name: '总经理审批',
+            nameAliases: ['总经理'],
             approveStatus: STATUS.approved,
             approveStatusText: STATUS_TEXT.approved,
             rejectStatus: STATUS.rejected,
@@ -201,23 +227,96 @@ define([], () => {
 
     const APPROVAL_NODE_SEQUENCE = APPROVAL_STATUS_SEQUENCE.map((status) => STATUS_NODE[status])
 
+    const normalizeMatchText = (value) => String(value || '')
+        .toLowerCase()
+        .replace(/[\s_\-:：,，.。()（）【】\[\]「」"'`]/g, '')
+
+    const NODE_BY_CODE = {}
+    const NODE_BY_NAME = {}
+
+    Object.keys(NODE_BY_ID).forEach((nodeId) => {
+        const node = NODE_BY_ID[nodeId]
+        const codeValues = [node.code].concat(node.codeAliases || [])
+        const nameValues = [node.name].concat(node.nameAliases || [])
+
+        codeValues.forEach((codeValue) => {
+            const key = normalizeMatchText(codeValue)
+
+            if (key) {
+                NODE_BY_CODE[key] = node
+            }
+        })
+
+        nameValues.forEach((nameValue) => {
+            const key = normalizeMatchText(nameValue)
+
+            if (key) {
+                NODE_BY_NAME[key] = node
+            }
+        })
+    })
+
     // RESTlet 支持的飞书动作。飞书回调字段可能不同，RESTlet 会统一归一化成这三个值。
     const ACTION = {
         approve: 'APPROVE',
         reject: 'REJECT',
-        return: 'RETURN'
+        return: 'RETURN',
+        cancel: 'CANCEL'
+    }
+
+    const pick = (...values) => {
+        for (let i = 0; i < values.length; i += 1) {
+            if (values[i] !== undefined && values[i] !== null && values[i] !== '') {
+                return values[i]
+            }
+        }
+
+        return ''
     }
 
     // 根据飞书 node_id 获取节点配置。
     const getNode = (nodeId) => NODE_BY_ID[nodeId] || null
 
-    // 根据飞书节点与动作计算 NetSuite 审批状态内部 ID。
-    const getTargetStatus = (nodeId, action) => {
-        const normalizedAction = String(action || '').toUpperCase()
+    const getNodeByCode = (nodeCode) => NODE_BY_CODE[normalizeMatchText(nodeCode)] || null
 
-        const node = getNode(nodeId)
+    const getNodeByName = (nodeName) => NODE_BY_NAME[normalizeMatchText(nodeName)] || null
+
+    const getNodeIdByStatus = (status) => STATUS_NODE[Number(status)] || null
+
+    const getNodeByStatus = (status) => getNode(getNodeIdByStatus(status))
+
+    const resolveNode = (value) => {
+        if (!value) {
+            return null
+        }
+
+        if (typeof value === 'string' || typeof value === 'number') {
+            return getNode(value)
+                || getNodeByCode(value)
+                || getNodeByName(value)
+                || getNodeByStatus(value)
+        }
+
+        if (value.approveStatus || value.rejectStatus || value.returnStatus) {
+            return value
+        }
+
+        return getNode(pick(value.nodeId, value.node_id, value.nodeKey, value.node_key))
+            || getNodeByCode(pick(value.nodeCode, value.node_code, value.code))
+            || getNodeByName(pick(value.nodeName, value.node_name, value.name))
+            || getNodeByStatus(pick(value.currentStatus, value.current_state, value.status, value.state))
+    }
+
+    // 根据飞书节点与动作计算 NetSuite 审批状态内部 ID。
+    const getTargetStatus = (nodeIdOrNode, action) => {
+        const normalizedAction = String(action || '').toUpperCase()
+        const node = resolveNode(nodeIdOrNode)
 
         if (!node) {
+            return null
+        }
+
+        if (normalizedAction === ACTION.cancel) {
             return null
         }
 
@@ -229,16 +328,23 @@ define([], () => {
             return node.returnStatus
         }
 
-        return node.approveStatus
+        if (normalizedAction === ACTION.approve) {
+            return node.approveStatus
+        }
+
+        return null
     }
 
     // 根据飞书节点与动作获取目标状态中文名，仅用于日志和接口返回。
-    const getTargetStatusText = (nodeId, action) => {
+    const getTargetStatusText = (nodeIdOrNode, action) => {
         const normalizedAction = String(action || '').toUpperCase()
-
-        const node = getNode(nodeId)
+        const node = resolveNode(nodeIdOrNode)
 
         if (!node) {
+            return null
+        }
+
+        if (normalizedAction === ACTION.cancel) {
             return null
         }
 
@@ -250,10 +356,12 @@ define([], () => {
             return node.returnStatusText
         }
 
-        return node.approveStatusText
-    }
+        if (normalizedAction === ACTION.approve) {
+            return node.approveStatusText
+        }
 
-    const getNodeIdByStatus = (status) => STATUS_NODE[Number(status)] || null
+        return null
+    }
 
     const getNodeSequenceIndex = (nodeId) => APPROVAL_NODE_SEQUENCE.indexOf(nodeId)
 
@@ -269,10 +377,16 @@ define([], () => {
         FEISHU_NODE,
         NODE_BY_ID,
         STATUS_NODE,
+        NODE_BY_CODE,
+        NODE_BY_NAME,
         APPROVAL_STATUS_SEQUENCE,
         APPROVAL_NODE_SEQUENCE,
         ACTION,
         getNode,
+        getNodeByCode,
+        getNodeByName,
+        getNodeByStatus,
+        resolveNode,
         getTargetStatus,
         getTargetStatusText,
         getNodeIdByStatus,

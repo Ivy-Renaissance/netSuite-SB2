@@ -10,6 +10,7 @@ define([
     'N/runtime',
     'N/search'
 ], (https, record, log, runtime, search) => {
+    const PREPAY_RECORD_TYPE = 'customrecord_swc_advancepay_plateform'
 
     /**
      * 飞书同步状态
@@ -47,6 +48,15 @@ define([
 
         const newRecord = context.newRecord
         const recordId = newRecord.id
+
+        if (newRecord.type === PREPAY_RECORD_TYPE) {
+            log.audit('跳过旧飞书审批脚本', {
+                recordType: newRecord.type,
+                recordId,
+                message: '预付款申请订单请使用 SWC_UE_FEISHU_PREPAY_APPROVAL_DEMO.js'
+            })
+            return
+        }
 
         try {
             const script = runtime.getCurrentScript()

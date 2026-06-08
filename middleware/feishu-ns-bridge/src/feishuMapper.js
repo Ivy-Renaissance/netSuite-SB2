@@ -2,6 +2,7 @@ const DEFAULT_APPROVAL_CODE = '306C03CB-85B1-4E66-888C-093ED122FD97'
 
 const FEISHU_WIDGET = {
     documentId: 'widget17803989748480001',
+    recordId: process.env.FEISHU_RECORD_ID_WIDGET_ID || '',
     subsidiary: 'widget17804882691220001',
     vendor: 'widget17805552284650001',
     po: 'widget17804880175290001',
@@ -13,6 +14,29 @@ const FEISHU_WIDGET = {
     vendorBankAccount: 'widget17804881206240001',
     expectedPayDate: 'widget17804882408040001'
 }
+
+const RECORD_ID_CUSTOM_IDS = [
+    'record_id',
+    'ns_record_id',
+    'internal_id',
+    'internalid',
+    'prepay_internal_id',
+    'ns_prepay_record_id',
+    'ns_prepay_internal_id'
+]
+
+const RECORD_ID_FIELD_NAMES = [
+    'NS预付款申请单内部ID',
+    'NS预付款申请单内部 ID',
+    '预付款申请单内部ID',
+    '预付款申请单内部 ID',
+    '单据内部ID',
+    '单据内部 ID',
+    '内部ID',
+    '内部 ID',
+    'NetSuite内部ID',
+    'NetSuite 内部 ID'
+]
 
 const WHOLE_ORDER_PREPAY_OPTION = {
     yes: 'mpy0ly9k-e01d8onmt9-0',
@@ -63,6 +87,13 @@ function buildApprovalForm(payload) {
             type: 'input',
             value: payload.tranid || payload.record_id
         },
+        FEISHU_WIDGET.recordId
+            ? {
+                id: FEISHU_WIDGET.recordId,
+                type: 'input',
+                value: payload.record_id
+            }
+            : null,
         {
             id: FEISHU_WIDGET.subsidiary,
             type: 'input',
@@ -115,7 +146,7 @@ function buildApprovalForm(payload) {
         }
     ]
 
-    return form
+    return form.filter(Boolean)
 }
 
 function normalizeFeishuEvent(body, instanceDetail) {
@@ -125,58 +156,60 @@ function normalizeFeishuEvent(body, instanceDetail) {
     const taskId = event.task_id
         || event.taskId
         || event.task && (event.task.id || event.task.task_id || event.task.taskId)
-    const instanceTask = findTaskFromInstance(instanceDetail, taskId)
     const timelineEvent = findTimelineEvent(instanceDetail, taskId)
+    const timelineTaskId = getTimelineTaskId(timelineEvent)
+    const instanceTask = findTaskFromInstance(instanceDetail, taskId || timelineTaskId)
     const instanceCode = event.instance_code
         || event.approval_instance_code
         || event.instanceCode
         || event.approvalInstanceCode
         || event.approval_instance && event.approval_instance.instance_code
         || event.instance && event.instance.instance_code
-    const rawAction = event.action
-        || event.status
-        || event.task_result
-        || event.taskResult
-        || event.task_status_name
-        || event.taskStatusName
-        || event.task_status
-        || event.taskStatus
-        || event.approval_status
-        || event.approvalStatus
-        || timelineEvent && timelineEvent.type
-        || instanceDetail && instanceDetail.status
     const eventType = event.type
         || event.event_type
         || event.eventType
         || header.event_type
         || header.eventType
-    const action = mapAction(rawAction, {
+    const action = mapFirstAction([
+        event.action,
+        event.task_result,
+        event.taskResult,
+        event.task_status_name,
+        event.taskStatusName,
+        event.task_status,
+        event.taskStatus,
+        event.approval_status,
+        event.approvalStatus,
+        ...getActionValues(timelineEvent),
+        event.status,
+        instanceDetail && instanceDetail.status
+    ], {
         eventType,
         instanceStatus: instanceDetail && instanceDetail.status
     })
+
+    const instanceRecordId = extractRecordIdFromInstance(instanceDetail)
+    const stableNodeId = getStableNodeId(event, instanceTask, timelineEvent, operator)
+    const runtimeNodeId = getRuntimeNodeId(event, instanceTask, timelineEvent, operator)
 
     return {
         event_id: header.event_id || body.uuid || body.event_id || body.eventId || event.event_id || event.uuid || `local-${Date.now()}`,
         approval_code: event.approval_code || event.approvalCode || event.definition_code || event.definitionCode || '',
         instance_code: instanceCode,
-        record_id: event.record_id || event.recordId || extractRecordIdFromInstance(instanceDetail) || '',
-        node_id: event.node_id
-            || event.nodeId
-            || event.node_key
-            || event.nodeKey
-            || event.task_node_id
-            || event.taskNodeId
-            || instanceTask && instanceTask.node_id
-            || instanceTask && instanceTask.nodeId
-            || instanceTask && instanceTask.node_key
-            || instanceTask && instanceTask.nodeKey
-            || timelineEvent && timelineEvent.node_key
-            || timelineEvent && timelineEvent.nodeKey
-            || event.task && (event.task.node_id || event.task.nodeId || event.task.node_key || event.task.nodeKey)
-            || operator.node_id
-            || operator.nodeId
-            || operator.node_key
-            || operator.nodeKey,
+        record_id: event.ns_record_id
+            || event.nsRecordId
+            || event.internal_id
+            || event.internalId
+            || event.record_internal_id
+            || event.recordInternalId
+            || instanceRecordId
+            || event.record_id
+            || event.recordId
+            || '',
+        node_id: stableNodeId || runtimeNodeId,
+        raw_node_id: runtimeNodeId,
+        node_name: getNodeName(event, instanceTask, timelineEvent, operator),
+        node_code: getNodeCode(event, instanceTask, timelineEvent, operator),
         action,
         operator: {
             name: event.operator_name
@@ -186,6 +219,7 @@ function normalizeFeishuEvent(body, instanceDetail) {
                 || event.user && (event.user.name || event.user.user_name)
                 || operator.name
                 || operator.user_name
+                || timelineEvent && (timelineEvent.user_name || timelineEvent.userName || timelineEvent.name)
                 || '',
             user_id: event.operator_user_id
                 || event.user_id
@@ -196,10 +230,73 @@ function normalizeFeishuEvent(body, instanceDetail) {
                 || operator.userId
                 || operator.open_id
                 || operator.openId
+                || timelineEvent && (timelineEvent.user_id || timelineEvent.userId || timelineEvent.open_id || timelineEvent.openId)
                 || ''
         },
         comment: event.comment || event.reason || operator.comment || operator.reason || timelineEvent && timelineEvent.comment || ''
     }
+}
+
+function pick(...values) {
+    for (let i = 0; i < values.length; i += 1) {
+        if (values[i] !== undefined && values[i] !== null && values[i] !== '') {
+            return values[i]
+        }
+    }
+
+    return ''
+}
+
+function getStableNodeId(event, instanceTask, timelineEvent, operator) {
+    return pick(
+        getNodeKey(event),
+        event && pick(event.task_node_key, event.taskNodeKey),
+        event && getNodeKey(event.task),
+        getNodeKey(instanceTask),
+        getNodeKey(timelineEvent),
+        getNodeKey(operator)
+    )
+}
+
+function getRuntimeNodeId(event, instanceTask, timelineEvent, operator) {
+    return pick(
+        event && pick(event.node_id, event.nodeId, event.task_node_id, event.taskNodeId),
+        event && event.task && pick(event.task.node_id, event.task.nodeId, event.task.task_node_id, event.task.taskNodeId),
+        instanceTask && pick(instanceTask.node_id, instanceTask.nodeId, instanceTask.task_node_id, instanceTask.taskNodeId),
+        timelineEvent && pick(timelineEvent.node_id, timelineEvent.nodeId, timelineEvent.task_node_id, timelineEvent.taskNodeId),
+        operator && pick(operator.node_id, operator.nodeId, operator.task_node_id, operator.taskNodeId)
+    )
+}
+
+function getNodeKey(value) {
+    return value && pick(
+        value.node_key,
+        value.nodeKey,
+        value.task_node_key,
+        value.taskNodeKey,
+        value.task_def_key,
+        value.taskDefKey
+    )
+}
+
+function getNodeName(event, instanceTask, timelineEvent, operator) {
+    return pick(
+        event && pick(event.node_name, event.nodeName, event.task_node_name, event.taskNodeName),
+        event && event.task && pick(event.task.node_name, event.task.nodeName, event.task.name, event.task.task_name, event.task.taskName),
+        instanceTask && pick(instanceTask.node_name, instanceTask.nodeName, instanceTask.name, instanceTask.task_name, instanceTask.taskName),
+        timelineEvent && pick(timelineEvent.node_name, timelineEvent.nodeName, timelineEvent.name, timelineEvent.task_name, timelineEvent.taskName),
+        operator && pick(operator.node_name, operator.nodeName)
+    )
+}
+
+function getNodeCode(event, instanceTask, timelineEvent, operator) {
+    return pick(
+        event && pick(event.node_code, event.nodeCode, event.task_node_code, event.taskNodeCode),
+        event && event.task && pick(event.task.node_code, event.task.nodeCode, event.task.code, event.task.task_code, event.task.taskCode),
+        instanceTask && pick(instanceTask.node_code, instanceTask.nodeCode, instanceTask.code, instanceTask.task_code, instanceTask.taskCode),
+        timelineEvent && pick(timelineEvent.node_code, timelineEvent.nodeCode, timelineEvent.code, timelineEvent.task_code, timelineEvent.taskCode),
+        operator && pick(operator.node_code, operator.nodeCode)
+    )
 }
 
 function findTaskFromInstance(instanceDetail, taskId) {
@@ -216,16 +313,58 @@ function findTimelineEvent(instanceDetail, taskId) {
     }
 
     if (taskId) {
-        const matchedByTaskId = instanceDetail.timeline.find((item) => String(item.task_id || item.taskId || '') === String(taskId))
+        const matchedByTaskId = instanceDetail.timeline
+            .slice()
+            .reverse()
+            .find((item) => String(getTimelineTaskId(item)) === String(taskId))
 
         if (matchedByTaskId) {
             return matchedByTaskId
         }
     }
 
-    return taskId
-        ? null
-        : (instanceDetail.timeline.length ? instanceDetail.timeline[instanceDetail.timeline.length - 1] : null)
+    if (taskId) {
+        return null
+    }
+
+    return instanceDetail.timeline
+        .slice()
+        .reverse()
+        .find((item) => isActionableTimelineEvent(item) || isCancelTimelineEvent(item)) || null
+}
+
+function getTimelineTaskId(item) {
+    return item && (item.task_id || item.taskId || item.task && (item.task.id || item.task.task_id || item.task.taskId)) || ''
+}
+
+function isActionableTimelineEvent(item) {
+    return !!mapFirstAction(getActionValues(item), {
+        eventType: 'approval_task'
+    })
+}
+
+function isCancelTimelineEvent(item) {
+    const value = String(item && (item.type || item.action || item.status || item.task_result || item.taskResult) || '').toUpperCase()
+
+    return [
+        'CANCEL',
+        'CANCELED',
+        'CANCELLED',
+        'CANCELED_BY_USER',
+        'CANCELLED_BY_USER',
+        'WITHDRAW',
+        'WITHDRAWN',
+        'REVOKE',
+        'REVOKED',
+        'REVERT',
+        'REVERTED',
+        'RECALL',
+        'RECALLED',
+        '撤销',
+        '已撤销',
+        '撤回',
+        '已撤回'
+    ].includes(value)
 }
 
 function extractRecordIdFromInstance(instanceDetail) {
@@ -234,6 +373,13 @@ function extractRecordIdFromInstance(instanceDetail) {
     }
 
     const form = parseForm(instanceDetail.form || instanceDetail.form_data || instanceDetail.formData || [])
+    const recordIdField = findRecordIdField(form)
+    const recordIdValue = readFormValue(recordIdField)
+
+    if (/^\d+$/.test(recordIdValue)) {
+        return recordIdValue
+    }
+
     const documentField = form.find((item) => item.id === FEISHU_WIDGET.documentId)
     const documentValue = readFormValue(documentField)
 
@@ -242,6 +388,58 @@ function extractRecordIdFromInstance(instanceDetail) {
     }
 
     return documentValue
+}
+
+function findRecordIdField(form) {
+    if (!Array.isArray(form)) {
+        return null
+    }
+
+    if (FEISHU_WIDGET.recordId) {
+        const matchedById = form.find((item) => item && item.id === FEISHU_WIDGET.recordId)
+
+        if (matchedById) {
+            return matchedById
+        }
+    }
+
+    return form.find(isRecordIdFormItem) || null
+}
+
+function isRecordIdFormItem(item) {
+    if (!item) {
+        return false
+    }
+
+    const customId = normalizeMatchText(
+        item.custom_id
+        || item.customId
+        || item.custom_key
+        || item.customKey
+        || item.external_id
+        || item.externalId
+    )
+    const name = normalizeMatchText(
+        item.name
+        || item.title
+        || item.label
+        || item.widget_name
+        || item.widgetName
+        || item.field_name
+        || item.fieldName
+    )
+
+    if (RECORD_ID_CUSTOM_IDS.some((value) => customId && customId === normalizeMatchText(value))) {
+        return true
+    }
+
+    return RECORD_ID_FIELD_NAMES.some((value) => name && name === normalizeMatchText(value))
+}
+
+function normalizeMatchText(value) {
+    return String(value || '')
+        .toLowerCase()
+        .replace(/[\s_\-:：,，.。()（）【】\[\]「」"'`]/g, '')
 }
 
 function readFormValue(field) {
@@ -274,8 +472,50 @@ function parseForm(form) {
     return Array.isArray(form) ? form : []
 }
 
+function getActionValues(item) {
+    if (!item) {
+        return []
+    }
+
+    return [
+        item.action,
+        item.task_result,
+        item.taskResult,
+        item.result,
+        item.status,
+        item.type
+    ]
+}
+
+function mapFirstAction(values, context = {}) {
+    const list = Array.isArray(values) ? values : []
+    let fallbackAction = ''
+
+    for (let i = 0; i < list.length; i += 1) {
+        const action = mapAction(list[i], context)
+
+        if (action) {
+            if (isDoneApprovalFallback(list[i], context)) {
+                fallbackAction = fallbackAction || action
+                continue
+            }
+
+            return action
+        }
+    }
+
+    return fallbackAction
+}
+
+function isDoneApprovalFallback(raw, context = {}) {
+    const value = String(raw || '').toUpperCase()
+
+    return value === 'DONE' && context.eventType === 'approval_task'
+}
+
 function mapAction(raw, context = {}) {
     const value = String(raw || '').toUpperCase()
+    const compactValue = value.replace(/[\s_\-]/g, '')
     const instanceStatus = String(context.instanceStatus || '').toUpperCase()
 
     if ([
@@ -300,7 +540,20 @@ function mapAction(raw, context = {}) {
         return ''
     }
 
-    if (['APPROVE', 'APPROVED', 'PASS', 'PASSED', 'AGREE', 'AGREED'].includes(value)) return 'APPROVE'
+    if ([
+        'APPROVE',
+        'APPROVED',
+        'PASS',
+        'PASSED',
+        'AGREE',
+        'AGREED',
+        '同意',
+        '已同意',
+        '通过',
+        '已通过',
+        '批准',
+        '已批准'
+    ].includes(value)) return 'APPROVE'
     if (
         value === 'DONE'
         && context.eventType === 'approval_task'
@@ -310,7 +563,30 @@ function mapAction(raw, context = {}) {
         return 'APPROVE'
     }
     if (['REJECT', 'REJECTED', 'REFUSE', 'REFUSED', '拒绝', '已拒绝', '驳回', '已驳回'].includes(value)) return 'REJECT'
-    if (['RETURN', 'RETURNED', 'BACK', '退回', '已退回', '打回', '已打回'].includes(value)) return 'RETURN'
+    if ([
+        'RETURN',
+        'RETURNED',
+        'BACK',
+        'ROLLBACK',
+        'ROLL_BACK',
+        'ROLLBACKED',
+        'ROLL_BACKED',
+        'SENT_BACK',
+        'SEND_BACK',
+        '退回',
+        '已退回',
+        '打回',
+        '已打回',
+        '退回至提交',
+        '退回到提交',
+        '退回至发起人',
+        '退回到发起人'
+    ].includes(value) || [
+        'ROLLBACK',
+        'ROLLBACKED',
+        'SENTBACK',
+        'SENDBACK'
+    ].includes(compactValue) || value.includes('退回') || value.includes('打回')) return 'RETURN'
 
     return ''
 }

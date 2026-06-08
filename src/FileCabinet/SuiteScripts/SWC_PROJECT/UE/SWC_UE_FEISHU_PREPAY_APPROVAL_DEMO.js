@@ -30,10 +30,11 @@ define([
         feishuUserId: 'custentity_feishu_user_id',
         feishuOpenDepartmentId: 'custentity_feishu_open_department_id'
     }
-    const FEISHU_APPROVAL_CODE = '306C03CB-85B1-4E66-888C-093ED122FD97'
+    const DEFAULT_FEISHU_APPROVAL_CODE = '306C03CB-85B1-4E66-888C-093ED122FD97'
     const EMPTY_FORM_VALUE = '--'
     const PREPAY_FORM_FIELD = {
         tranId: 'name',
+        memo: 'custrecord_swc_advancepay_memo',
         subsidiary: 'custrecord_swc_advancepay_subsidary',
         vendor: 'custrecord_swc_advancepay_vendor',
         po: 'custrecord_swc_advancepay_po',
@@ -47,17 +48,85 @@ define([
         expectedPayDate: 'custrecord_swc_advancepay_paydate2'
     }
     const PREPAY_FORM_WIDGET = {
-        tranId: 'widget17803989748480001',
-        subsidiary: 'widget17804882691220001',
-        vendor: 'widget17805552284650001',
-        po: 'widget17804880175290001',
-        allQuantity: 'widget17804879167890001',
-        paymentTerms: 'widget17804878894070001',
-        totalAmount: 'widget17804879695390001',
-        wholeOrderPrepay: 'widget17804880426800001',
-        wholeOrderPercent: 'widget17804880862390001',
-        vendorBankAccount: 'widget17804881206240001',
-        expectedPayDate: 'widget17804882408040001'
+        tranId: {
+            id: 'widget17803989748480001',
+            type: 'input',
+            customIds: ['tran_id', 'document_id', 'document_no', 'prepay_no', 'prepay_tran_id'],
+            names: ['单据号', '单据ID', '单据 ID', '单据编号', '预付款申请单号', '预付款单号', 'NS预付款申请工作流ID', 'NS预付款申请工作流 ID']
+        },
+        subsidiary: {
+            id: 'widget17804882691220001',
+            type: 'input',
+            customIds: ['subsidiary', 'company', 'apply_company'],
+            names: ['主体', '子公司', '公司', '申请公司']
+        },
+        vendor: {
+            id: 'widget17805552284650001',
+            type: 'input',
+            customIds: ['vendor', 'supplier', 'payee'],
+            names: ['供应商', '供应商名称', '收款方']
+        },
+        po: {
+            id: 'widget17804880175290001',
+            type: 'input',
+            customIds: ['po', 'purchase_order', 'purchase_order_no'],
+            names: ['采购订单', '采购订单号', 'PO']
+        },
+        allQuantity: {
+            id: 'widget17804879167890001',
+            type: 'number',
+            customIds: ['all_quantity', 'quantity', 'total_quantity'],
+            names: ['总数量', '全部数量', '数量']
+        },
+        paymentTerms: {
+            id: 'widget17804878894070001',
+            type: 'input',
+            customIds: ['payment_terms', 'payment_term'],
+            names: ['付款条款', '付款条件', '支付条款']
+        },
+        totalAmount: {
+            id: 'widget17804879695390001',
+            type: 'amount',
+            customIds: ['total_amount', 'amount', 'payment_amount', 'prepay_amount'],
+            names: ['总金额', '付款金额', '预付款金额', '金额']
+        },
+        wholeOrderPrepay: {
+            id: 'widget17804880426800001',
+            type: 'radioV2',
+            customIds: ['whole_order_prepay', 'is_whole_order_prepay'],
+            names: ['是否整单预付', '整单预付', '整单预付款']
+        },
+        wholeOrderPercent: {
+            id: 'widget17804880862390001',
+            type: 'input',
+            customIds: ['whole_order_percent', 'prepay_percent'],
+            names: ['整单预付比例', '预付比例', '比例']
+        },
+        vendorBankAccount: {
+            id: 'widget17804881206240001',
+            type: 'input',
+            customIds: ['vendor_bank_account', 'bank_account', 'payee_bank_account'],
+            names: ['供应商银行账号', '银行账号', '收款账号', '供应商收款账户']
+        },
+        expectedPayDate: {
+            id: 'widget17804882408040001',
+            type: 'date',
+            customIds: ['expected_pay_date', 'pay_date', 'payment_date'],
+            names: ['预计付款日期', '期望付款日期', '付款日期', '预计支付日期']
+        },
+        recordId: {
+            id: '',
+            type: 'input',
+            required: true,
+            customIds: ['record_id', 'ns_record_id', 'internal_id', 'internalid', 'prepay_internal_id', 'ns_prepay_record_id', 'ns_prepay_internal_id'],
+            names: ['NS预付款申请单内部ID', 'NS预付款申请单内部 ID', '预付款申请单内部ID', '预付款申请单内部 ID', '单据内部ID', '单据内部 ID', '内部ID', '内部 ID', 'NetSuite内部ID', 'NetSuite 内部 ID']
+        },
+        detail: {
+            id: '',
+            type: 'textarea',
+            customIds: ['detail', 'details', 'memo', 'remark'],
+            names: ['明细', '明细文本', '明细文本1', '明细文本 1', '明细备注', '备注', '申请说明']
+        }
     }
     const PREPAY_WHOLE_ORDER_OPTION = {
         yes: 'mpy0ly9k-e01d8onmt9-0',
@@ -66,6 +135,8 @@ define([
 
     // 读取脚本部署参数，避免把飞书密钥和审批 code 写死在代码里。
     const getParameter = (name) => runtime.getCurrentScript().getParameter({ name })
+
+    const getApprovalCode = () => getParameter(PARAM.approvalCode) || DEFAULT_FEISHU_APPROVAL_CODE
 
     /**
      * 获取飞书 tenant_access_token。
@@ -130,6 +201,19 @@ define([
         return body.data || {}
     }
 
+    const getFeishuApprovalDefinition = (approvalCode, token) => {
+        const response = https.get({
+            url: 'https://open.feishu.cn/open-apis/approval/v4/approvals/' + encodeURIComponent(approvalCode),
+            headers: {
+                Authorization: 'Bearer ' + token,
+                'Content-Type': 'application/json; charset=utf-8'
+            }
+        })
+        const body = parseFeishuResponse(response, '获取飞书审批定义详情失败')
+
+        return body.data || {}
+    }
+
     /**
      * 根据当前 NetSuite 员工内部 ID 查找飞书 user_id 和 open_department_id。
      *
@@ -185,6 +269,157 @@ define([
             || value === undefined
             || value === ''
             || (Array.isArray(value) && !value.length)
+    }
+
+    const pickValue = (...values) => {
+        for (let i = 0; i < values.length; i += 1) {
+            if (!isEmptyFormValue(values[i])) {
+                return values[i]
+            }
+        }
+
+        return ''
+    }
+
+    const normalizeLookupValue = (value) => {
+        if (Array.isArray(value)) {
+            if (!value.length) {
+                return ''
+            }
+
+            const firstValue = value[0]
+
+            if (firstValue && typeof firstValue === 'object' && firstValue.value !== undefined) {
+                return firstValue.value
+            }
+
+            return firstValue
+        }
+
+        return value
+    }
+
+    const normalizeInternalId = (value) => {
+        const normalizedValue = normalizeLookupValue(value)
+
+        if (isEmptyFormValue(normalizedValue)) {
+            return null
+        }
+
+        const numberValue = Number(normalizedValue)
+
+        return isNaN(numberValue) ? null : numberValue
+    }
+
+    const getRecordValue = (suiteRecord, fieldId) => {
+        if (!suiteRecord) {
+            return ''
+        }
+
+        try {
+            return normalizeLookupValue(suiteRecord.getValue({ fieldId }))
+        } catch (e) {
+            return ''
+        }
+    }
+
+    const isUserEventType = (context, eventTypeName) => {
+        const eventType = context.UserEventType || {}
+
+        return context.type === eventType[eventTypeName]
+            || String(context.type || '').toUpperCase() === eventTypeName
+    }
+
+    const isXEdit = (context) => isUserEventType(context, 'XEDIT')
+
+    const isCreate = (context) => isUserEventType(context, 'CREATE')
+
+    const isSubmitIntoStartApproval = (context, stateInfo) => {
+        const currentState = stateInfo.currentState
+        const oldState = stateInfo.oldState
+
+        if (currentState !== config.START_APPROVAL_STATUS || oldState === config.START_APPROVAL_STATUS) {
+            return false
+        }
+
+        return isCreate(context)
+            || oldState === null
+            || oldState === config.STATUS.pendingSubmit
+            || oldState === config.STATUS.submitted
+            || oldState === config.STATUS.returned
+    }
+
+    const isOneOfEventTypes = (context, eventTypeNames) => {
+        return eventTypeNames.some((eventTypeName) => isUserEventType(context, eventTypeName))
+    }
+
+    const lookupPrepaySyncFields = (recordId) => {
+        if (!recordId) {
+            return {}
+        }
+
+        try {
+            const values = search.lookupFields({
+                type: config.RECORD_TYPE,
+                id: recordId,
+                columns: [
+                    config.FIELD.state,
+                    config.FIELD.feishuInstanceCode
+                ]
+            })
+
+            return {
+                state: normalizeLookupValue(values[config.FIELD.state]),
+                instanceCode: normalizeLookupValue(values[config.FIELD.feishuInstanceCode])
+            }
+        } catch (e) {
+            log.audit('查询预付款申请飞书同步字段失败', {
+                recordId,
+                message: e.message
+            })
+
+            return {}
+        }
+    }
+
+    const getPrepayStateInfo = (context) => {
+        const newRecord = context.newRecord
+        const oldRecord = context.oldRecord
+        const stateField = config.FIELD.state
+        const instanceField = config.FIELD.feishuInstanceCode
+        const currentStateFromEvent = getRecordValue(newRecord, stateField)
+        const oldStateFromEvent = getRecordValue(oldRecord, stateField)
+        const instanceCodeFromNewRecord = getRecordValue(newRecord, instanceField)
+        const instanceCodeFromOldRecord = getRecordValue(oldRecord, instanceField)
+        const hasStateInEvent = !isEmptyFormValue(currentStateFromEvent) || !isEmptyFormValue(oldStateFromEvent)
+        const shouldLookupSavedFields = isXEdit(context)
+            && (hasStateInEvent || isEmptyFormValue(instanceCodeFromNewRecord))
+        const savedFields = shouldLookupSavedFields ? lookupPrepaySyncFields(newRecord && newRecord.id) : {}
+
+        return {
+            currentState: normalizeInternalId(pickValue(currentStateFromEvent, savedFields.state)),
+            oldState: isCreate(context) ? null : normalizeInternalId(oldStateFromEvent),
+            existingInstanceCode: isCreate(context)
+                ? ''
+                : pickValue(
+                    instanceCodeFromNewRecord,
+                    savedFields.instanceCode,
+                    instanceCodeFromOldRecord
+                ),
+            hasStateInEvent
+        }
+    }
+
+    const getPrepayRecordForCreate = (context) => {
+        if (!isXEdit(context)) {
+            return context.newRecord
+        }
+
+        return record.load({
+            type: config.RECORD_TYPE,
+            id: context.newRecord.id,
+            isDynamic: false
+        })
     }
 
     const normalizeFormValue = (value) => {
@@ -287,45 +522,103 @@ define([
         return valueCurrency || lookupCurrencyCode(value)
     }
 
-    const getRadioOptionValue = (value, optionByText) => {
-        const normalizedValue = normalizeFormValue(value)
+    const getOptionArray = (control) => {
+        const raw = control && control.raw || {}
+        const optionValue = raw.option || raw.options || raw.option_list || raw.optionList || raw.value_list || raw.valueList || []
 
-        if (normalizedValue === EMPTY_FORM_VALUE) {
-            return normalizedValue
+        if (Array.isArray(optionValue)) {
+            return optionValue
         }
 
-        if (optionByText[normalizedValue]) {
-            return optionByText[normalizedValue]
+        if (typeof optionValue === 'string') {
+            const parsedOptions = parseJsonValue(optionValue, [])
+
+            return Array.isArray(parsedOptions) ? parsedOptions : []
         }
 
-        return normalizedValue
+        return []
     }
 
-    const getWholeOrderPrepayValue = (prepayRecord) => {
+    const getOptionText = (option) => {
+        return getTextValue(option && (
+            option.text
+            || option.name
+            || option.label
+            || option.value
+            || option.title
+        ))
+    }
+
+    const getOptionValue = (option) => {
+        return option && (
+            option.key
+            || option.id
+            || option.option_id
+            || option.optionId
+            || option.value
+            || option.text
+        )
+    }
+
+    const getOptionValueByText = (control, text) => {
+        const normalizedTarget = normalizeMatchText(text)
+        const options = getOptionArray(control)
+
+        for (let i = 0; i < options.length; i += 1) {
+            if (normalizeMatchText(getOptionText(options[i])) === normalizedTarget) {
+                return getOptionValue(options[i])
+            }
+        }
+
+        return ''
+    }
+
+    const getWholeOrderPrepayText = (prepayRecord) => {
         const value = prepayRecord.getValue({ fieldId: PREPAY_FORM_FIELD.wholeOrderPrepay })
 
         if (isEmptyFormValue(value)) {
-            return PREPAY_WHOLE_ORDER_OPTION.no
+            return '否'
         }
 
         if (value === true || value === 'T' || value === 'true' || value === '是') {
-            return PREPAY_WHOLE_ORDER_OPTION.yes
+            return '是'
         }
 
         if (value === false || value === 'F' || value === 'false' || value === '否') {
-            return PREPAY_WHOLE_ORDER_OPTION.no
+            return '否'
         }
 
-        return getRadioOptionValue(getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.wholeOrderPrepay), {
-            是: PREPAY_WHOLE_ORDER_OPTION.yes,
-            否: PREPAY_WHOLE_ORDER_OPTION.no
-        }) || PREPAY_WHOLE_ORDER_OPTION.no
+        return getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.wholeOrderPrepay)
     }
 
-    const buildAmountFormItem = (prepayRecord) => {
+    const isRadioControl = (control) => {
+        const type = String(control && control.type || '').toLowerCase()
+
+        return type === 'radiov2' || type === 'radio' || type === 'radio_v2'
+    }
+
+    const getWholeOrderPrepayValue = (prepayRecord, control) => {
+        const text = getWholeOrderPrepayText(prepayRecord)
+
+        if (isRadioControl(control)) {
+            const optionValue = getOptionValueByText(control, text)
+
+            if (optionValue) {
+                return optionValue
+            }
+
+            return text === '是'
+                ? PREPAY_WHOLE_ORDER_OPTION.yes
+                : PREPAY_WHOLE_ORDER_OPTION.no
+        }
+
+        return text
+    }
+
+    const buildAmountFormItem = (prepayRecord, control) => {
         const item = {
-            id: PREPAY_FORM_WIDGET.totalAmount,
-            type: 'amount',
+            id: control.id,
+            type: control.type || PREPAY_FORM_WIDGET.totalAmount.type,
             value: getNumberFormValue(prepayRecord, PREPAY_FORM_FIELD.totalAmount)
         }
         const currency = getCurrencyFormValue(prepayRecord)
@@ -384,65 +677,379 @@ define([
         return values.length ? values : null
     }
 
+    const parseJsonValue = (value, fallbackValue) => {
+        if (typeof value !== 'string') {
+            return value === undefined || value === null ? fallbackValue : value
+        }
+
+        try {
+            return JSON.parse(value)
+        } catch (e) {
+            return fallbackValue
+        }
+    }
+
+    const getTextValue = (value) => {
+        if (value === null || value === undefined) {
+            return ''
+        }
+
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            return String(value)
+        }
+
+        if (typeof value === 'object') {
+            return getTextValue(
+                value.zh_cn
+                || value.zh
+                || value['zh-CN']
+                || value.en_us
+                || value.en
+                || value.text
+                || value.name
+                || value.label
+                || value.value
+            )
+        }
+
+        return ''
+    }
+
+    const getErrorMessage = (error) => {
+        if (!error) {
+            return ''
+        }
+
+        return error.message || String(error)
+    }
+
+    const truncateLogText = (value, limit) => {
+        const text = String(value || '')
+
+        if (!limit || text.length <= limit) {
+            return text
+        }
+
+        return text.slice(0, limit - 3) + '...'
+    }
+
+    const normalizeMatchText = (value) => {
+        return getTextValue(value)
+            .toLowerCase()
+            .replace(/[\s_\-:：,，.。()（）【】\[\]「」"'`]/g, '')
+    }
+
+    const getControlId = (control) => getTextValue(control && (
+        control.id
+        || control.widget_id
+        || control.widgetId
+        || control.field_id
+        || control.fieldId
+    ))
+
+    const getControlName = (control) => getTextValue(control && (
+        control.name
+        || control.title
+        || control.label
+        || control.widget_name
+        || control.widgetName
+        || control.field_name
+        || control.fieldName
+    ))
+
+    const getControlCustomId = (control) => getTextValue(control && (
+        control.custom_id
+        || control.customId
+        || control.custom_key
+        || control.customKey
+        || control.external_id
+        || control.externalId
+    ))
+
+    const getControlType = (control) => getTextValue(control && (
+        control.type
+        || control.widget_type
+        || control.widgetType
+        || control.component_type
+        || control.componentType
+    ))
+
+    const flattenFormControls = (value, controls, seenIds) => {
+        const parsedValue = typeof value === 'string' ? parseJsonValue(value, value) : value
+
+        if (Array.isArray(parsedValue)) {
+            parsedValue.forEach((item) => flattenFormControls(item, controls, seenIds))
+            return
+        }
+
+        if (!parsedValue || typeof parsedValue !== 'object') {
+            return
+        }
+
+        const controlId = getControlId(parsedValue)
+
+        if (controlId && !seenIds[controlId]) {
+            controls.push({
+                id: controlId,
+                type: getControlType(parsedValue),
+                name: getControlName(parsedValue),
+                customId: getControlCustomId(parsedValue),
+                raw: parsedValue
+            })
+            seenIds[controlId] = true
+        }
+
+        Object.keys(parsedValue).forEach((key) => {
+            if (key === 'option'
+                || key === 'options'
+                || key === 'option_list'
+                || key === 'optionList') {
+                return
+            }
+
+            flattenFormControls(parsedValue[key], controls, seenIds)
+        })
+    }
+
+    const getDefinitionControls = (approvalDefinition) => {
+        const formData = approvalDefinition && (
+            approvalDefinition.form
+            || approvalDefinition.form_content
+            || approvalDefinition.formContent
+            || approvalDefinition.form_data
+            || approvalDefinition.formData
+            || approvalDefinition.approval_form
+            || approvalDefinition.approvalForm
+            || approvalDefinition.form_list
+            || approvalDefinition.formList
+            || approvalDefinition.widgets
+            || approvalDefinition.widget_list
+            || approvalDefinition.widgetList
+            || approvalDefinition
+        )
+        const controls = []
+
+        flattenFormControls(parseJsonValue(formData, formData), controls, {})
+
+        return controls
+    }
+
+    const getControlScore = (control, widgetConfig) => {
+        let score = 0
+
+        if (widgetConfig.id && control.id === widgetConfig.id) {
+            score = Math.max(score, 1000)
+        }
+
+        const controlCustomId = normalizeMatchText(control.customId)
+        const controlName = normalizeMatchText(control.name)
+        const customIds = widgetConfig.customIds || []
+        const names = widgetConfig.names || []
+
+        customIds.forEach((customId) => {
+            if (controlCustomId && controlCustomId === normalizeMatchText(customId)) {
+                score = Math.max(score, 900)
+            }
+        })
+
+        names.forEach((name) => {
+            const candidateName = normalizeMatchText(name)
+
+            if (!candidateName || !controlName) {
+                return
+            }
+
+            if (controlName === candidateName) {
+                score = Math.max(score, 800)
+                return
+            }
+
+            if (controlName.indexOf(candidateName) !== -1) {
+                score = Math.max(score, 500 + candidateName.length)
+            }
+        })
+
+        if (score && widgetConfig.type && String(control.type || '').toLowerCase() === String(widgetConfig.type).toLowerCase()) {
+            score += 20
+        }
+
+        return score
+    }
+
+    const findMatchedControl = (controls, widgetConfig, usedControlIds) => {
+        let matchedControl = null
+        let matchedScore = 0
+
+        controls.forEach((control) => {
+            if (usedControlIds[control.id]) {
+                return
+            }
+
+            const score = getControlScore(control, widgetConfig)
+
+            if (score > matchedScore) {
+                matchedControl = control
+                matchedScore = score
+            }
+        })
+
+        if (!matchedControl) {
+            return null
+        }
+
+        usedControlIds[matchedControl.id] = true
+
+        return matchedControl
+    }
+
+    const getControlSummary = (controls) => {
+        return controls.map((control) => {
+            return {
+                id: control.id,
+                name: control.name,
+                customId: control.customId,
+                type: control.type
+            }
+        })
+    }
+
+    const resolveFormControls = (approvalDefinition) => {
+        const controls = getDefinitionControls(approvalDefinition)
+        const usedControlIds = {}
+        const matchedControls = {}
+        const unmatchedKeys = []
+        const hasApprovalDefinition = !!approvalDefinition && Object.keys(approvalDefinition).length
+        const hasDefinitionControls = !!controls.length
+
+        if (!hasApprovalDefinition) {
+            throw new Error('未获取到飞书审批定义详情，停止创建审批实例，避免提交旧控件 ID')
+        }
+
+        if (!hasDefinitionControls) {
+            throw new Error('飞书审批定义详情中未解析到表单控件，请检查审批定义接口返回结构。字段=' + Object.keys(approvalDefinition).join(','))
+        }
+
+        Object.keys(PREPAY_FORM_WIDGET).forEach((key) => {
+            const widgetConfig = PREPAY_FORM_WIDGET[key]
+            const matchedControl = findMatchedControl(controls, widgetConfig, usedControlIds)
+
+            if (matchedControl) {
+                matchedControls[key] = {
+                    id: matchedControl.id,
+                    type: matchedControl.type || widgetConfig.type,
+                    name: matchedControl.name,
+                    customId: matchedControl.customId,
+                    raw: matchedControl.raw || {}
+                }
+                return
+            }
+
+            unmatchedKeys.push(key)
+        })
+
+        if (hasDefinitionControls && unmatchedKeys.length) {
+            log.audit('飞书审批定义未匹配到部分预付款控件，创建表单时将跳过这些字段', {
+                unmatchedKeys,
+                availableControls: getControlSummary(controls)
+            })
+        }
+
+        const unmatchedRequiredKeys = unmatchedKeys.filter((key) => PREPAY_FORM_WIDGET[key] && PREPAY_FORM_WIDGET[key].required)
+
+        if (unmatchedRequiredKeys.length) {
+            throw new Error('飞书审批定义未匹配到必填预付款控件，停止创建审批实例。unmatchedRequiredKeys='
+                + unmatchedRequiredKeys.join(',')
+                + ', availableControls='
+                + JSON.stringify(getControlSummary(controls)))
+        }
+
+        return matchedControls
+    }
+
+    const createFormItem = (control, value) => {
+        if (!control || !control.id) {
+            return null
+        }
+
+        const controlType = String(control.type || '').toLowerCase()
+
+        if (controlType.indexOf('fieldlist') !== -1
+            || controlType.indexOf('table') !== -1
+            || controlType.indexOf('attachment') !== -1
+            || controlType.indexOf('department') !== -1
+            || controlType.indexOf('contact') !== -1) {
+            return null
+        }
+
+        return {
+            id: control.id,
+            type: control.type || 'input',
+            value
+        }
+    }
+
+    const appendFormItem = (form, item) => {
+        if (item && item.id) {
+            form.push(item)
+        }
+    }
+
+    const getFormItemSummary = (form) => {
+        return form.map((item, index) => {
+            return {
+                index,
+                id: item.id,
+                type: item.type
+            }
+        })
+    }
+
+    const assertFormItemsInDefinition = (form, approvalDefinition) => {
+        const controls = getDefinitionControls(approvalDefinition)
+        const controlById = {}
+
+        controls.forEach((control) => {
+            controlById[control.id] = true
+        })
+
+        const invalidItems = form.filter((item) => item && item.id && !controlById[item.id])
+
+        if (invalidItems.length) {
+            throw new Error('飞书审批表单包含审批定义中不存在的控件，已停止创建审批实例。invalidItems='
+                + JSON.stringify(getFormItemSummary(invalidItems))
+                + ', availableControls='
+                + JSON.stringify(getControlSummary(controls)))
+        }
+    }
+
     /**
      * 构造飞书审批表单数据。
      *
      * 字段来源为预付款申请单据字段；缺少内容时，飞书控件统一填充“--”。
      */
-    const buildForm = (prepayRecord) => {
-        return [
-            {
-                id: PREPAY_FORM_WIDGET.tranId,
-                type: 'input',
-                value: getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.tranId)
-            },
-            {
-                id: PREPAY_FORM_WIDGET.subsidiary,
-                type: 'input',
-                value: getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.subsidiary)
-            },
-            {
-                id: PREPAY_FORM_WIDGET.vendor,
-                type: 'input',
-                value: getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.vendor)
-            },
-            {
-                id: PREPAY_FORM_WIDGET.po,
-                type: 'input',
-                value: getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.po)
-            },
-            {
-                id: PREPAY_FORM_WIDGET.allQuantity,
-                type: 'number',
-                value: getNumberFormValue(prepayRecord, PREPAY_FORM_FIELD.allQuantity)
-            },
-            {
-                id: PREPAY_FORM_WIDGET.paymentTerms,
-                type: 'input',
-                value: getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.paymentTerms)
-            },
-            buildAmountFormItem(prepayRecord),
-            {
-                id: PREPAY_FORM_WIDGET.wholeOrderPrepay,
-                type: 'radioV2',
-                value: getWholeOrderPrepayValue(prepayRecord)
-            },
-            {
-                id: PREPAY_FORM_WIDGET.wholeOrderPercent,
-                type: 'input',
-                value: getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.wholeOrderPercent)
-            },
-            {
-                id: PREPAY_FORM_WIDGET.vendorBankAccount,
-                type: 'input',
-                value: getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.vendorBankAccount)
-            },
-            {
-                id: PREPAY_FORM_WIDGET.expectedPayDate,
-                type: 'date',
-                value: getDateFormValue(prepayRecord, PREPAY_FORM_FIELD.expectedPayDate)
-            }
-        ]
+    const buildForm = (prepayRecord, approvalDefinition) => {
+        const controls = resolveFormControls(approvalDefinition)
+        const form = []
+
+        appendFormItem(form, createFormItem(controls.tranId, getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.tranId)))
+        appendFormItem(form, createFormItem(controls.recordId, String(prepayRecord.id || '')))
+        appendFormItem(form, createFormItem(controls.subsidiary, getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.subsidiary)))
+        appendFormItem(form, createFormItem(controls.vendor, getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.vendor)))
+        appendFormItem(form, createFormItem(controls.po, getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.po)))
+        appendFormItem(form, createFormItem(controls.allQuantity, getNumberFormValue(prepayRecord, PREPAY_FORM_FIELD.allQuantity)))
+        appendFormItem(form, createFormItem(controls.paymentTerms, getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.paymentTerms)))
+        appendFormItem(form, controls.totalAmount ? buildAmountFormItem(prepayRecord, controls.totalAmount) : null)
+        appendFormItem(form, createFormItem(controls.wholeOrderPrepay, getWholeOrderPrepayValue(prepayRecord, controls.wholeOrderPrepay)))
+        appendFormItem(form, createFormItem(controls.wholeOrderPercent, getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.wholeOrderPercent)))
+        appendFormItem(form, createFormItem(controls.vendorBankAccount, getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.vendorBankAccount)))
+        appendFormItem(form, createFormItem(controls.expectedPayDate, getDateFormValue(prepayRecord, PREPAY_FORM_FIELD.expectedPayDate)))
+        appendFormItem(form, createFormItem(controls.detail, getFieldFormValue(prepayRecord, PREPAY_FORM_FIELD.memo)))
+
+        if (!form.length) {
+            throw new Error('未能从飞书审批定义匹配到任何可提交表单控件，请检查审批模板控件名称或 custom_id')
+        }
+
+        return form
     }
 
     const getTaskId = (task) => task && (task.id || task.task_id || task.taskId)
@@ -539,6 +1146,22 @@ define([
             type: config.RECORD_TYPE,
             id: recordId,
             values,
+            options: {
+                enableSourcing: false,
+                ignoreMandatoryFields: true
+            }
+        })
+    }
+
+    const markFeishuCreatePending = (recordId) => {
+        record.submitFields({
+            type: config.RECORD_TYPE,
+            id: recordId,
+            values: {
+                [config.FIELD.feishuInstanceCode]: '',
+                [config.FIELD.feishuLastEventId]: '',
+                [config.FIELD.feishuSyncStatus]: config.SYNC_STATUS.pending
+            },
             options: {
                 enableSourcing: false,
                 ignoreMandatoryFields: true
@@ -644,11 +1267,11 @@ define([
     const syncFeishuApprovalNode = (recordId, instanceCode, targetStatus) => {
         const appId = getParameter(PARAM.appId)
         const appSecret = getParameter(PARAM.appSecret)
-        const approvalCode = getParameter(PARAM.approvalCode)
+        const approvalCode = getApprovalCode()
         const targetNodeId = config.getNodeIdByStatus(targetStatus)
 
         if (!appId || !appSecret || !approvalCode) {
-            throw new Error('缺少飞书脚本参数：App ID / App Secret / Approval Code')
+            throw new Error('缺少飞书脚本参数：App ID / App Secret')
         }
 
         if (!targetNodeId) {
@@ -704,23 +1327,24 @@ define([
      * 普通提交流程要求记录上没有飞书 instance_code；被飞书退回后再次提交时，
      * 即使历史数据残留旧 instance_code，也创建新的飞书审批实例并覆盖旧实例号。
      */
-    const shouldCreateFeishuApproval = (context) => {
-        if (![context.UserEventType.CREATE, context.UserEventType.EDIT].includes(context.type)) {
+    const shouldCreateFeishuApproval = (context, stateInfo) => {
+        if (!isOneOfEventTypes(context, ['CREATE', 'EDIT', 'XEDIT'])) {
             return false
         }
 
-        const newRecord = context.newRecord
-        const oldRecord = context.oldRecord
-        const stateField = config.FIELD.state
-        const currentState = Number(newRecord.getValue({ fieldId: stateField }))
-        const oldState = oldRecord ? Number(oldRecord.getValue({ fieldId: stateField })) : null
-        const existingInstanceCode = newRecord.getValue({ fieldId: config.FIELD.feishuInstanceCode })
+        const currentState = stateInfo.currentState
+        const oldState = stateInfo.oldState
         const isResubmitAfterReturn = oldState === config.STATUS.returned
             && currentState === config.START_APPROVAL_STATUS
 
         return currentState === config.START_APPROVAL_STATUS
+            && stateInfo.hasStateInEvent
             && oldState !== config.START_APPROVAL_STATUS
-            && (!existingInstanceCode || isResubmitAfterReturn)
+            && (
+                isSubmitIntoStartApproval(context, stateInfo)
+                || !stateInfo.existingInstanceCode
+                || isResubmitAfterReturn
+            )
     }
 
     const isFromFeishuRestlet = () => {
@@ -732,8 +1356,8 @@ define([
     /**
      * 判断本次保存是否需要把 NS 审批状态同步到已有飞书实例。
      */
-    const shouldSyncFeishuApprovalNode = (context) => {
-        if (![context.UserEventType.EDIT].includes(context.type)) {
+    const shouldSyncFeishuApprovalNode = (context, stateInfo) => {
+        if (!isOneOfEventTypes(context, ['EDIT', 'XEDIT'])) {
             return false
         }
 
@@ -741,18 +1365,20 @@ define([
             return false
         }
 
-        const newRecord = context.newRecord
-        const oldRecord = context.oldRecord
-        const stateField = config.FIELD.state
-        const currentState = Number(newRecord.getValue({ fieldId: stateField }))
-        const oldState = oldRecord ? Number(oldRecord.getValue({ fieldId: stateField })) : null
-        const existingInstanceCode = newRecord.getValue({ fieldId: config.FIELD.feishuInstanceCode })
+        const currentState = stateInfo.currentState
+        const oldState = stateInfo.oldState
+        const existingInstanceCode = stateInfo.existingInstanceCode
 
         if (oldState === config.STATUS.returned && currentState === config.START_APPROVAL_STATUS) {
             return false
         }
 
+        if (isSubmitIntoStartApproval(context, stateInfo)) {
+            return false
+        }
+
         return !!existingInstanceCode
+            && stateInfo.hasStateInEvent
             && currentState !== oldState
             && !!config.getNodeIdByStatus(currentState)
     }
@@ -770,28 +1396,47 @@ define([
      * - 保留 NS 原审批状态，方便人工重试。
      */
     const afterSubmit = (context) => {
-        if (!shouldCreateFeishuApproval(context) && !shouldSyncFeishuApprovalNode(context)) {
+        const stateInfo = getPrepayStateInfo(context)
+        const shouldSyncNode = shouldSyncFeishuApprovalNode(context, stateInfo)
+        const shouldCreateApproval = shouldCreateFeishuApproval(context, stateInfo)
+
+        if (!shouldCreateApproval && !shouldSyncNode) {
             return
         }
 
-        const prepayRecord = context.newRecord
-        const recordId = prepayRecord.id
+        let prepayRecord = context.newRecord
+        const recordId = context.newRecord.id
 
-        if (shouldSyncFeishuApprovalNode(context)) {
+        if (shouldSyncNode) {
             try {
+                log.audit('预付款申请飞书审批节点同步开始', {
+                    recordId,
+                    instanceCode: stateInfo.existingInstanceCode,
+                    oldState: stateInfo.oldState,
+                    currentState: stateInfo.currentState,
+                    targetNodeId: config.getNodeIdByStatus(stateInfo.currentState)
+                })
+
                 const result = syncFeishuApprovalNode(
                     recordId,
-                    prepayRecord.getValue({ fieldId: config.FIELD.feishuInstanceCode }),
-                    prepayRecord.getValue({ fieldId: config.FIELD.state })
+                    stateInfo.existingInstanceCode,
+                    stateInfo.currentState
                 )
 
                 log.audit('预付款申请飞书审批节点同步成功', {
                     recordId,
-                    instanceCode: prepayRecord.getValue({ fieldId: config.FIELD.feishuInstanceCode }),
+                    instanceCode: stateInfo.existingInstanceCode,
                     result
                 })
             } catch (e) {
-                log.error('预付款申请飞书审批节点同步失败', e)
+                log.error('预付款申请飞书审批节点同步失败', {
+                    recordId,
+                    instanceCode: stateInfo.existingInstanceCode,
+                    oldState: stateInfo.oldState,
+                    currentState: stateInfo.currentState,
+                    message: getErrorMessage(e),
+                    reason: getErrorMessage(e)
+                })
                 markFeishuSyncStatus(recordId, config.SYNC_STATUS.failed)
             }
 
@@ -801,23 +1446,57 @@ define([
         try {
             const appId = getParameter(PARAM.appId)
             const appSecret = getParameter(PARAM.appSecret)
-            const approvalCode = FEISHU_APPROVAL_CODE
+            const approvalCode = getApprovalCode()
             const currentUser = runtime.getCurrentUser()
             const employeeInfo = findFeishuEmployeeInfo(currentUser.id)
             const feishuUserId = employeeInfo.feishuUserId
 
             if (!appId || !appSecret || !approvalCode) {
-                throw new Error('缺少飞书脚本参数：App ID / App Secret / Approval Code')
+                log.error('预付款申请飞书审批创建参数缺失', {
+                    recordId,
+                    hasAppId: !!appId,
+                    hasAppSecret: !!appSecret,
+                    hasApprovalCode: !!approvalCode
+                })
+                throw new Error('缺少飞书脚本参数：App ID / App Secret')
             }
 
             if (!feishuUserId) {
+                log.error('预付款申请飞书审批创建参数缺失', {
+                    recordId,
+                    nsUserId: currentUser.id,
+                    nsUserName: currentUser.name,
+                    missingField: EMPLOYEE_FIELD.feishuUserId
+                })
                 throw new Error('当前NS用户未配置员工字段 ' + EMPLOYEE_FIELD.feishuUserId)
             }
 
-            markFeishuSyncStatus(recordId, config.SYNC_STATUS.pending)
+            markFeishuCreatePending(recordId)
+
+            log.audit('预付款申请飞书审批创建开始', {
+                recordId,
+                oldState: stateInfo.oldState,
+                currentState: stateInfo.currentState,
+                approvalCode,
+                nsUserId: currentUser.id,
+                feishuUserId,
+                openDepartmentId: employeeInfo.openDepartmentId || getParameter(PARAM.departmentId) || '',
+                inheritedInstanceCode: stateInfo.existingInstanceCode || ''
+            })
 
             const token = getTenantToken(appId, appSecret)
-            const form = buildForm(prepayRecord)
+            const approvalDefinition = getFeishuApprovalDefinition(approvalCode, token)
+            prepayRecord = getPrepayRecordForCreate(context)
+            const form = buildForm(prepayRecord, approvalDefinition)
+            assertFormItemsInDefinition(form, approvalDefinition)
+
+            log.audit('预付款申请飞书审批创建表单控件', {
+                recordId,
+                approvalCode,
+                formItems: getFormItemSummary(form),
+                availableControls: getControlSummary(getDefinitionControls(approvalDefinition))
+            })
+
             const response = https.post({
                 url: 'https://open.feishu.cn/open-apis/approval/v4/instances?user_id_type=user_id',
                 headers: {
@@ -834,11 +1513,37 @@ define([
             const body = JSON.parse(response.body || '{}')
 
             if (body.code !== 0) {
+                log.error('预付款申请飞书审批创建接口返回失败', {
+                    recordId,
+                    approvalCode,
+                    feishuCode: body.code,
+                    feishuMsg: body.msg || body.message || '',
+                    responseBody: truncateLogText(response.body, 2000)
+                })
                 throw new Error('创建飞书审批实例失败：' + response.body)
             }
 
+            const instanceCode = body.data && body.data.instance_code
+
+            if (!instanceCode) {
+                log.error('预付款申请飞书审批创建接口返回缺少实例号', {
+                    recordId,
+                    approvalCode,
+                    responseBody: truncateLogText(response.body, 2000)
+                })
+                throw new Error('创建飞书审批实例返回缺少 instance_code：' + response.body)
+            }
+
+            log.audit('预付款申请飞书审批实例已创建', {
+                recordId,
+                approvalCode,
+                instanceCode,
+                feishuCode: body.code
+            })
+
             const values = {
-                [config.FIELD.feishuInstanceCode]: body.data.instance_code,
+                [config.FIELD.feishuInstanceCode]: instanceCode,
+                [config.FIELD.feishuLastEventId]: '',
                 [config.FIELD.feishuSyncStatus]: config.SYNC_STATUS.success
             }
 
@@ -858,10 +1563,19 @@ define([
 
             log.audit('预付款申请飞书审批创建成功', {
                 recordId,
-                instanceCode: body.data.instance_code
+                approvalCode,
+                instanceCode,
+                syncStatus: config.SYNC_STATUS.success
             })
         } catch (e) {
-            log.error('预付款申请飞书审批创建失败', e)
+            log.error('预付款申请飞书审批创建失败', {
+                recordId,
+                oldState: stateInfo.oldState,
+                currentState: stateInfo.currentState,
+                inheritedInstanceCode: stateInfo.existingInstanceCode || '',
+                message: getErrorMessage(e),
+                reason: getErrorMessage(e)
+            })
 
             markFeishuSyncStatus(recordId, config.SYNC_STATUS.failed)
         }

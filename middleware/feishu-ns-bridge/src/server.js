@@ -128,7 +128,7 @@ async function handleFeishuApprovalCallback(req, res) {
         const preliminaryPayload = normalizeFeishuEvent(body)
         let instanceDetail = null
 
-        if (preliminaryPayload.instance_code && (!preliminaryPayload.record_id || !preliminaryPayload.node_id)) {
+        if (preliminaryPayload.instance_code) {
             instanceDetail = await getApprovalInstance(preliminaryPayload.instance_code)
         }
 

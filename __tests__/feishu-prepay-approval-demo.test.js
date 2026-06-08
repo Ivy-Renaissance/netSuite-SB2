@@ -60,6 +60,20 @@ describe('Feishu prepayment approval demo config', () => {
             config.getNodeSequenceIndex(config.FEISHU_NODE.financeManager)
         );
     });
+
+    it('resolves runtime approval node ids by the current NetSuite pending status', () => {
+        const config = loadConfig();
+        const runtimeNodeId = 'APPROVAL_782493_4614729';
+
+        const node = config.resolveNode({
+            nodeId: runtimeNodeId,
+            currentStatus: config.STATUS.pendingGeneralLedger
+        });
+
+        expect(node.id).toBe(config.FEISHU_NODE.generalLedger);
+        expect(config.getTargetStatus(node, config.ACTION.approve)).toBe(config.STATUS.pendingFinanceManager);
+        expect(config.getTargetStatusText(node, config.ACTION.approve)).toBe(config.STATUS_TEXT.pendingFinanceManager);
+    });
 });
 
 describe('Feishu bridge mapper', () => {
@@ -82,12 +96,17 @@ describe('Feishu bridge mapper', () => {
     });
 
     it('maps rejected and returned Feishu actions to NetSuite callback actions', () => {
+        expect(mapAction('已同意')).toBe('APPROVE');
+        expect(mapAction('通过')).toBe('APPROVE');
         expect(mapAction('REJECTED')).toBe('REJECT');
         expect(mapAction('拒绝')).toBe('REJECT');
         expect(mapAction('驳回')).toBe('REJECT');
         expect(mapAction('RETURNED')).toBe('RETURN');
         expect(mapAction('退回')).toBe('RETURN');
         expect(mapAction('打回')).toBe('RETURN');
+        expect(mapAction('ROLLBACK')).toBe('RETURN');
+        expect(mapAction('SENT_BACK')).toBe('RETURN');
+        expect(mapAction('退回至提交')).toBe('RETURN');
     });
 
     it('normalizes a canceled Feishu instance as an ignored callback action', () => {
@@ -165,10 +184,271 @@ describe('Feishu bridge mapper', () => {
             action: 'APPROVE'
         }));
     });
+
+    it('normalizes a general ledger approved Chinese action', () => {
+        const config = loadConfig();
+        const result = normalizeFeishuEvent({
+            header: {
+                event_id: 'evt-bridge-gl-agree-cn-1',
+                event_type: 'approval_task'
+            },
+            event: {
+                instance_code: 'FEISHU-INSTANCE-GL-AGREE-CN',
+                task_id: 'task-general-ledger',
+                task_result: '已同意',
+                user: {
+                    name: '总账审批人',
+                    user_id: 'ou_general_ledger'
+                }
+            }
+        }, {
+            form: JSON.stringify([
+                {
+                    id: FEISHU_WIDGET.documentId,
+                    value: '276'
+                }
+            ]),
+            task_list: [
+                {
+                    id: 'task-general-ledger',
+                    node_key: config.FEISHU_NODE.generalLedger,
+                    user_id: 'ou_general_ledger'
+                }
+            ]
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            event_id: 'evt-bridge-gl-agree-cn-1',
+            instance_code: 'FEISHU-INSTANCE-GL-AGREE-CN',
+            record_id: '276',
+            node_id: config.FEISHU_NODE.generalLedger,
+            action: 'APPROVE'
+        }));
+    });
+
+    it('prefers stable node_key and preserves runtime node_id for NetSuite callbacks', () => {
+        const config = loadConfig();
+        const result = normalizeFeishuEvent({
+            header: {
+                event_id: 'evt-bridge-gl-runtime-node-1',
+                event_type: 'approval_task'
+            },
+            event: {
+                instance_code: 'FEISHU-INSTANCE-GL-RUNTIME',
+                task_id: 'task-general-ledger',
+                node_id: 'APPROVAL_782493_4614729',
+                task_result: '已同意',
+                user: {
+                    name: '总账审批人',
+                    user_id: 'ou_general_ledger'
+                }
+            }
+        }, {
+            form: JSON.stringify([
+                {
+                    id: FEISHU_WIDGET.documentId,
+                    value: '276'
+                }
+            ]),
+            task_list: [
+                {
+                    id: 'task-general-ledger',
+                    node_id: 'APPROVAL_782493_4614729',
+                    node_key: config.FEISHU_NODE.generalLedger,
+                    node_name: '总账审批',
+                    user_id: 'ou_general_ledger'
+                }
+            ]
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            event_id: 'evt-bridge-gl-runtime-node-1',
+            instance_code: 'FEISHU-INSTANCE-GL-RUNTIME',
+            record_id: '276',
+            node_id: config.FEISHU_NODE.generalLedger,
+            raw_node_id: 'APPROVAL_782493_4614729',
+            node_name: '总账审批',
+            action: 'APPROVE'
+        }));
+    });
+
+    it('prefers the timeline return result over a DONE task status', () => {
+        const config = loadConfig();
+        const result = normalizeFeishuEvent({
+            header: {
+                event_id: 'evt-bridge-gl-return-1',
+                event_type: 'approval_task'
+            },
+            event: {
+                instance_code: 'FEISHU-INSTANCE-GL-RETURN',
+                task_id: 'task-general-ledger',
+                task_status: 'DONE',
+                user: {
+                    name: '总账审批人',
+                    user_id: 'ou_general_ledger'
+                }
+            }
+        }, {
+            status: 'PENDING',
+            form: JSON.stringify([
+                {
+                    id: FEISHU_WIDGET.documentId,
+                    value: '273'
+                }
+            ]),
+            task_list: [
+                {
+                    id: 'task-general-ledger',
+                    node_id: config.FEISHU_NODE.generalLedger,
+                    user_id: 'ou_general_ledger'
+                }
+            ],
+            timeline: [
+                {
+                    type: 'RETURN',
+                    task_id: 'task-general-ledger',
+                    node_key: config.FEISHU_NODE.generalLedger,
+                    user_id: 'ou_general_ledger',
+                    comment: '打咩'
+                }
+            ]
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            event_id: 'evt-bridge-gl-return-1',
+            instance_code: 'FEISHU-INSTANCE-GL-RETURN',
+            record_id: '273',
+            node_id: config.FEISHU_NODE.generalLedger,
+            action: 'RETURN',
+            comment: '打咩'
+        }));
+    });
+
+    it('normalizes a finance manager rollback timeline over a DONE task status', () => {
+        const config = loadConfig();
+        const result = normalizeFeishuEvent({
+            header: {
+                event_id: 'evt-bridge-fm-rollback-1',
+                event_type: 'approval_task'
+            },
+            event: {
+                instance_code: 'FEISHU-INSTANCE-FM-ROLLBACK',
+                task_id: 'task-finance-manager',
+                task_status: 'DONE',
+                user: {
+                    name: '财务经理',
+                    user_id: 'ou_finance_manager'
+                }
+            }
+        }, {
+            status: 'PENDING',
+            form: JSON.stringify([
+                {
+                    id: FEISHU_WIDGET.documentId,
+                    value: '274'
+                }
+            ]),
+            task_list: [
+                {
+                    id: 'task-finance-manager',
+                    node_id: config.FEISHU_NODE.financeManager,
+                    user_id: 'ou_finance_manager'
+                }
+            ],
+            timeline: [
+                {
+                    action: 'ROLLBACK',
+                    status: 'DONE',
+                    task_id: 'task-finance-manager',
+                    node_key: config.FEISHU_NODE.financeManager,
+                    user_id: 'ou_finance_manager',
+                    comment: 'dfdf'
+                }
+            ]
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            event_id: 'evt-bridge-fm-rollback-1',
+            instance_code: 'FEISHU-INSTANCE-FM-ROLLBACK',
+            record_id: '274',
+            node_id: config.FEISHU_NODE.financeManager,
+            action: 'RETURN',
+            comment: 'dfdf'
+        }));
+    });
+
+    it('normalizes an approval instance event from the latest actionable timeline task', () => {
+        const config = loadConfig();
+        const result = normalizeFeishuEvent({
+            header: {
+                event_id: 'evt-bridge-fm-instance-1',
+                event_type: 'approval_instance'
+            },
+            event: {
+                type: 'approval_instance',
+                instance_code: 'FEISHU-INSTANCE-FM',
+                status: 'PENDING'
+            }
+        }, {
+            status: 'PENDING',
+            form: JSON.stringify([
+                {
+                    id: FEISHU_WIDGET.documentId,
+                    value: 'PREPAY00271'
+                },
+                {
+                    name: 'NS预付款申请单内部ID',
+                    value: '271'
+                }
+            ]),
+            task_list: [
+                {
+                    id: 'task-fm',
+                    node_id: config.FEISHU_NODE.financeManager,
+                    user_id: 'eg2b8f4d'
+                },
+                {
+                    id: 'task-fd',
+                    node_id: config.FEISHU_NODE.financeDirector,
+                    status: 'PENDING',
+                    user_id: 'ou_finance_director'
+                }
+            ],
+            timeline: [
+                {
+                    type: 'PASS',
+                    task_id: 'task-gl',
+                    node_key: config.FEISHU_NODE.generalLedger,
+                    user_id: 'eg2b8f4d',
+                    comment: '1475'
+                },
+                {
+                    type: 'PASS',
+                    task_id: 'task-fm',
+                    user_id: 'eg2b8f4d',
+                    comment: 'popopo'
+                },
+                {
+                    type: 'READ',
+                    task_id: 'task-fd'
+                }
+            ]
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            event_id: 'evt-bridge-fm-instance-1',
+            instance_code: 'FEISHU-INSTANCE-FM',
+            record_id: '271',
+            node_id: config.FEISHU_NODE.financeManager,
+            action: 'APPROVE',
+            comment: 'popopo'
+        }));
+        expect(result.operator.user_id).toBe('eg2b8f4d');
+    });
 });
 
 describe('Feishu prepayment approval User Event demo', () => {
-    const createRecordMock = ({ id = '1001', state, oldState, instanceCode = 'FEISHU-INSTANCE-001' }) => ({
+    const createRecordMock = ({ id = '1001', state, oldState, instanceCode = 'FEISHU-INSTANCE-001', type = 'edit' }) => ({
         newRecord: {
             id,
             getValue: jest.fn(({ fieldId }) => {
@@ -188,17 +468,19 @@ describe('Feishu prepayment approval User Event demo', () => {
                 return '';
             })
         },
-        type: 'edit',
+        type,
         UserEventType: {
             CREATE: 'create',
-            EDIT: 'edit'
+            EDIT: 'edit',
+            XEDIT: 'xedit'
         }
     });
 
     const loadUserEvent = (overrides = {}) => {
         const config = loadConfig();
         const record = {
-            submitFields: jest.fn()
+            submitFields: jest.fn(),
+            load: jest.fn()
         };
         const runtime = {
             executionContext: 'USERINTERFACE',
@@ -218,9 +500,11 @@ describe('Feishu prepayment approval User Event demo', () => {
         };
         const search = {
             Type: {
-                EMPLOYEE: 'employee'
+                EMPLOYEE: 'employee',
+                CURRENCY: 'currency'
             },
             createColumn: jest.fn((column) => column),
+            lookupFields: jest.fn(),
             create: jest.fn().mockReturnValue({
                 run: jest.fn().mockReturnValue({
                     each: jest.fn((callback) => {
@@ -323,6 +607,91 @@ describe('Feishu prepayment approval User Event demo', () => {
             approval_code: 'approval-code',
             instance_code: 'FEISHU-INSTANCE-001',
             user_id: 'ou_general_ledger',
+            task_id: 'task-gl'
+        }));
+        expect(record.submitFields).toHaveBeenLastCalledWith(expect.objectContaining({
+            values: {
+                [config.FIELD.feishuSyncStatus]: config.SYNC_STATUS.success
+            }
+        }));
+    });
+
+    it('syncs Feishu approval for XEDIT status changes when the event record omits the instance code', () => {
+        const config = loadConfig();
+        const https = {
+            post: jest.fn()
+                .mockReturnValueOnce({ body: JSON.stringify({ code: 0, tenant_access_token: 'tenant-token' }) })
+                .mockReturnValueOnce({ body: JSON.stringify({ code: 0, data: {} }) }),
+            get: jest.fn()
+                .mockReturnValueOnce({
+                    body: JSON.stringify({
+                        code: 0,
+                        data: {
+                            form: '[]',
+                            task_list: [
+                                {
+                                    id: 'task-gl',
+                                    status: 'PENDING',
+                                    node_id: config.FEISHU_NODE.generalLedger,
+                                    user_id: 'ou_general_ledger'
+                                }
+                            ]
+                        }
+                    })
+                })
+                .mockReturnValueOnce({
+                    body: JSON.stringify({
+                        code: 0,
+                        data: {
+                            form: '[]',
+                            task_list: [
+                                {
+                                    id: 'task-fm',
+                                    status: 'PENDING',
+                                    node_id: config.FEISHU_NODE.financeManager,
+                                    user_id: 'ou_finance_manager'
+                                }
+                            ]
+                        }
+                    })
+                })
+        };
+        const search = {
+            Type: {
+                EMPLOYEE: 'employee',
+                CURRENCY: 'currency'
+            },
+            createColumn: jest.fn((column) => column),
+            lookupFields: jest.fn().mockReturnValue({
+                [config.FIELD.state]: [{ value: config.STATUS.pendingFinanceManager }],
+                [config.FIELD.feishuInstanceCode]: 'FEISHU-XEDIT-001'
+            }),
+            create: jest.fn().mockReturnValue({
+                run: jest.fn().mockReturnValue({
+                    each: jest.fn(() => true)
+                })
+            })
+        };
+        const { userEvent, record } = loadUserEvent({ https, search });
+
+        userEvent.afterSubmit(createRecordMock({
+            oldState: config.STATUS.pendingGeneralLedger,
+            state: config.STATUS.pendingFinanceManager,
+            instanceCode: '',
+            type: 'xedit'
+        }));
+
+        expect(search.lookupFields).toHaveBeenCalledWith({
+            type: config.RECORD_TYPE,
+            id: '1001',
+            columns: [
+                config.FIELD.state,
+                config.FIELD.feishuInstanceCode
+            ]
+        });
+        expect(JSON.parse(https.post.mock.calls[1][0].body)).toEqual(expect.objectContaining({
+            approval_code: 'approval-code',
+            instance_code: 'FEISHU-XEDIT-001',
             task_id: 'task-gl'
         }));
         expect(record.submitFields).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -578,13 +947,31 @@ describe('Feishu prepayment approval User Event demo', () => {
         expect(record.submitFields).not.toHaveBeenCalled();
     });
 
-    it('creates a new Feishu approval instance when a returned prepayment is submitted again', () => {
+    it('creates a new Feishu approval instance with current approval definition widget ids when a returned prepayment is submitted again', () => {
         const config = loadConfig();
         const https = {
             post: jest.fn()
                 .mockReturnValueOnce({ body: JSON.stringify({ code: 0, tenant_access_token: 'tenant-token' }) })
                 .mockReturnValueOnce({ body: JSON.stringify({ code: 0, data: { instance_code: 'FEISHU-INSTANCE-NEW' } }) }),
-            get: jest.fn()
+            get: jest.fn().mockReturnValue({
+                body: JSON.stringify({
+                    code: 0,
+                    data: {
+                        form: JSON.stringify([
+                            {
+                                id: 'widget-current-tran-id',
+                                type: 'input',
+                                name: '单据号'
+                            },
+                            {
+                                id: 'widget-current-record-id',
+                                type: 'input',
+                                name: 'NS预付款申请单内部ID'
+                            }
+                        ])
+                    }
+                })
+            })
         };
         const { userEvent, record } = loadUserEvent({ https });
 
@@ -594,22 +981,139 @@ describe('Feishu prepayment approval User Event demo', () => {
             instanceCode: 'FEISHU-INSTANCE-OLD'
         }));
 
-        expect(https.get).not.toHaveBeenCalled();
+        expect(https.get).toHaveBeenCalledWith(expect.objectContaining({
+            url: 'https://open.feishu.cn/open-apis/approval/v4/approvals/approval-code'
+        }));
         expect(https.post).toHaveBeenNthCalledWith(2, expect.objectContaining({
             url: 'https://open.feishu.cn/open-apis/approval/v4/instances?user_id_type=user_id'
         }));
-        expect(JSON.parse(https.post.mock.calls[1][0].body)).toEqual(expect.objectContaining({
+        const createPayload = JSON.parse(https.post.mock.calls[1][0].body);
+        const createForm = JSON.parse(createPayload.form);
+
+        expect(createPayload).toEqual(expect.objectContaining({
             approval_code: 'approval-code',
             user_id: 'ou_creator'
         }));
+        expect(createForm).toEqual([
+            {
+                id: 'widget-current-tran-id',
+                type: 'input',
+                value: 'PREPAY001'
+            },
+            {
+                id: 'widget-current-record-id',
+                type: 'input',
+                value: '1001'
+            }
+        ]);
+        expect(createPayload.form).not.toContain('widget17803989748480001');
         expect(record.submitFields).toHaveBeenLastCalledWith(expect.objectContaining({
             type: config.RECORD_TYPE,
             id: '1001',
             values: {
                 [config.FIELD.feishuInstanceCode]: 'FEISHU-INSTANCE-NEW',
+                [config.FIELD.feishuLastEventId]: '',
                 [config.FIELD.feishuSyncStatus]: config.SYNC_STATUS.success
             }
         }));
+    });
+
+    it('creates a fresh Feishu approval when a copied prepayment carries old Feishu fields', () => {
+        const config = loadConfig();
+        const https = {
+            post: jest.fn()
+                .mockReturnValueOnce({ body: JSON.stringify({ code: 0, tenant_access_token: 'tenant-token' }) })
+                .mockReturnValueOnce({ body: JSON.stringify({ code: 0, data: { instance_code: 'FEISHU-INSTANCE-COPIED-NEW' } }) }),
+            get: jest.fn().mockReturnValue({
+                body: JSON.stringify({
+                    code: 0,
+                    data: {
+                        form: JSON.stringify([
+                            {
+                                id: 'widget-current-tran-id',
+                                type: 'input',
+                                name: '单据号'
+                            },
+                            {
+                                id: 'widget-current-record-id',
+                                type: 'input',
+                                name: 'NS预付款申请单内部ID'
+                            }
+                        ])
+                    }
+                })
+            })
+        };
+        const { userEvent, record } = loadUserEvent({ https });
+
+        userEvent.afterSubmit(createRecordMock({
+            id: '2002',
+            oldState: null,
+            state: config.START_APPROVAL_STATUS,
+            instanceCode: 'FEISHU-INSTANCE-COPIED-OLD',
+            type: 'create'
+        }));
+
+        expect(https.post).toHaveBeenNthCalledWith(2, expect.objectContaining({
+            url: 'https://open.feishu.cn/open-apis/approval/v4/instances?user_id_type=user_id'
+        }));
+        expect(record.submitFields).toHaveBeenNthCalledWith(1, expect.objectContaining({
+            type: config.RECORD_TYPE,
+            id: '2002',
+            values: {
+                [config.FIELD.feishuInstanceCode]: '',
+                [config.FIELD.feishuLastEventId]: '',
+                [config.FIELD.feishuSyncStatus]: config.SYNC_STATUS.pending
+            }
+        }));
+        expect(record.submitFields).toHaveBeenLastCalledWith(expect.objectContaining({
+            type: config.RECORD_TYPE,
+            id: '2002',
+            values: {
+                [config.FIELD.feishuInstanceCode]: 'FEISHU-INSTANCE-COPIED-NEW',
+                [config.FIELD.feishuLastEventId]: '',
+                [config.FIELD.feishuSyncStatus]: config.SYNC_STATUS.success
+            }
+        }));
+    });
+
+    it('stops before creating a Feishu approval instance when the approval definition has no parsed controls', () => {
+        const config = loadConfig();
+        const https = {
+            post: jest.fn()
+                .mockReturnValueOnce({ body: JSON.stringify({ code: 0, tenant_access_token: 'tenant-token' }) }),
+            get: jest.fn().mockReturnValue({
+                body: JSON.stringify({
+                    code: 0,
+                    data: {
+                        approval_name: '预付款审批'
+                    }
+                })
+            })
+        };
+        const { userEvent, record, log } = loadUserEvent({ https });
+
+        userEvent.afterSubmit(createRecordMock({
+            oldState: config.STATUS.returned,
+            state: config.START_APPROVAL_STATUS,
+            instanceCode: 'FEISHU-INSTANCE-OLD'
+        }));
+
+        expect(https.post).toHaveBeenCalledTimes(1);
+        expect(https.post.mock.calls[0][0].url).toBe('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal');
+        expect(record.submitFields).toHaveBeenLastCalledWith(expect.objectContaining({
+            type: config.RECORD_TYPE,
+            id: '1001',
+            values: {
+                [config.FIELD.feishuSyncStatus]: config.SYNC_STATUS.failed
+            }
+        }));
+        expect(log.error).toHaveBeenCalledWith(
+            '预付款申请飞书审批创建失败',
+            expect.objectContaining({
+                message: expect.stringContaining('未解析到表单控件')
+            })
+        );
     });
 });
 
@@ -663,11 +1167,26 @@ describe('Feishu prepayment approval callback RESTlet demo', () => {
             audit: jest.fn(),
             error: jest.fn()
         };
+        const https = {
+            post: jest.fn(),
+            get: jest.fn()
+        };
+        const runtime = {
+            getCurrentScript: jest.fn().mockReturnValue({
+                getParameter: jest.fn(({ name }) => {
+                    if (name === 'custscript_fs_demo_app_id') return 'cli_aa9d2362783b5bd6';
+                    if (name === 'custscript_fs_demo_app_secret') return 'app-secret';
+                    return '';
+                })
+            })
+        };
 
         const restlet = loadSuiteScriptModule(
             'src/FileCabinet/SuiteScripts/SWC_PROJECT/RL/SWC_RL_FEISHU_PREPAY_CALLBACK_DEMO.js',
             {
+                'N/https': overrides.https || https,
                 'N/record': overrides.record || record,
+                'N/runtime': overrides.runtime || runtime,
                 'N/search': overrides.search || search,
                 'N/log': overrides.log || log,
                 '../common/SWC_Feishu_Approval_Demo_Config': config
@@ -677,10 +1196,12 @@ describe('Feishu prepayment approval callback RESTlet demo', () => {
         return {
             restlet,
             config,
+            https: overrides.https || https,
             record: overrides.record || record,
+            runtime: overrides.runtime || runtime,
             search: overrides.search || search,
             commentRecord,
-            log
+            log: overrides.log || log
         };
     };
 
@@ -762,7 +1283,7 @@ describe('Feishu prepayment approval callback RESTlet demo', () => {
         expect(record.submitFields).not.toHaveBeenCalled();
     });
 
-    it('looks up prepayment by document number when record_id is not an internal id', () => {
+    it('looks up prepayment by Feishu instance code before document number when record_id is not an internal id', () => {
         const config = loadConfig();
         const commentRecord = {
             setValue: jest.fn(),
@@ -833,7 +1354,7 @@ describe('Feishu prepayment approval callback RESTlet demo', () => {
         expect(result.data.ns_record_id).toBe('1001');
         expect(search.create).toHaveBeenCalledWith(expect.objectContaining({
             type: config.RECORD_TYPE,
-            filters: [[config.FIELD.tranId, 'is', 'PREPAY00233']]
+            filters: [[config.FIELD.feishuInstanceCode, 'is', 'FEISHU-INSTANCE-002']]
         }));
         expect(record.submitFields).toHaveBeenCalledWith(expect.objectContaining({
             type: config.RECORD_TYPE,
@@ -850,6 +1371,66 @@ describe('Feishu prepayment approval callback RESTlet demo', () => {
             fieldId: 'owner',
             value: '502'
         });
+    });
+
+    it('falls back to document number lookup when record_id is not an internal id and instance code is missing', () => {
+        const config = loadConfig();
+        const commentRecord = {
+            setValue: jest.fn(),
+            save: jest.fn().mockReturnValue('9005')
+        };
+        const record = {
+            create: jest.fn().mockReturnValue(commentRecord),
+            submitFields: jest.fn()
+        };
+        const search = {
+            Type: {
+                EMPLOYEE: 'employee'
+            },
+            createColumn: jest.fn((column) => column),
+            create: jest.fn(({ type }) => {
+                if (type === 'employee') {
+                    return {
+                        run: jest.fn().mockReturnValue({
+                            each: jest.fn(() => true)
+                        })
+                    };
+                }
+
+                return {
+                    run: jest.fn().mockReturnValue({
+                        each: jest.fn((callback) => {
+                            callback({
+                                getValue: jest.fn(({ name }) => {
+                                    if (name === 'internalid') return '1001';
+                                    if (name === config.FIELD.tranId) return 'PREPAY00233';
+                                    if (name === config.FIELD.state) return config.STATUS.pendingDepartmentManager;
+                                    if (name === config.FIELD.feishuLastEventId) return '';
+                                    return '';
+                                })
+                            });
+                            return true;
+                        })
+                    })
+                };
+            }),
+            lookupFields: jest.fn()
+        };
+        const { restlet } = loadRestlet({ search, record });
+
+        const result = restlet.post({
+            event_id: 'evt-prepay-no-no-instance',
+            record_id: 'PREPAY00233',
+            node_id: config.FEISHU_NODE.departmentManager,
+            action: 'APPROVE'
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data.ns_record_id).toBe('1001');
+        expect(search.create).toHaveBeenCalledWith(expect.objectContaining({
+            type: config.RECORD_TYPE,
+            filters: [[config.FIELD.tranId, 'is', 'PREPAY00233']]
+        }));
     });
 
     it('normalizes Feishu node id from a task list when callback event only has task_id', () => {
@@ -885,6 +1466,126 @@ describe('Feishu prepayment approval callback RESTlet demo', () => {
         expect(commentRecord.setValue).toHaveBeenCalledWith(expect.objectContaining({
             fieldId: 'custrecord_swc_approval_comments_content',
             value: '[部门经理通过]：无审批意见'
+        }));
+    });
+
+    it('advances NetSuite from general ledger to finance manager for a Chinese approved callback', () => {
+        const { restlet, config, record, commentRecord } = loadRestlet();
+
+        const result = restlet.post({
+            event_id: 'evt-gl-agree-cn-1',
+            event_type: 'approval_task',
+            event: {
+                instance_code: 'FEISHU-INSTANCE-GL-AGREE-CN',
+                record_id: '1001',
+                task_id: 'task-general-ledger',
+                task_result: '已同意',
+                user: {
+                    name: '李星月',
+                    user_id: 'ou_demo_user'
+                }
+            },
+            task_list: [
+                {
+                    id: 'task-general-ledger',
+                    node_id: config.FEISHU_NODE.generalLedger
+                }
+            ]
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data.action).toBe(config.ACTION.approve);
+        expect(result.data.target_status).toBe(config.STATUS.pendingFinanceManager);
+        expect(result.data.target_status_text).toBe(config.STATUS_TEXT.pendingFinanceManager);
+        expect(commentRecord.setValue).toHaveBeenCalledWith(expect.objectContaining({
+            fieldId: 'custrecord_swc_approval_comments_content',
+            value: '[总账审批通过]：无审批意见'
+        }));
+        expect(record.submitFields).toHaveBeenCalledWith(expect.objectContaining({
+            values: expect.objectContaining({
+                [config.FIELD.state]: config.STATUS.pendingFinanceManager,
+                [config.FIELD.feishuLastEventId]: 'evt-gl-agree-cn-1'
+            })
+        }));
+    });
+
+    it('advances NetSuite from general ledger when Feishu sends a runtime APPROVAL node id', () => {
+        const config = loadConfig();
+        const commentRecord = {
+            setValue: jest.fn(),
+            save: jest.fn().mockReturnValue('9006')
+        };
+        const record = {
+            create: jest.fn().mockReturnValue(commentRecord),
+            submitFields: jest.fn()
+        };
+        const search = {
+            Type: {
+                EMPLOYEE: 'employee'
+            },
+            createColumn: jest.fn((column) => column),
+            lookupFields: jest.fn().mockReturnValue({
+                [config.FIELD.tranId]: '1001',
+                [config.FIELD.state]: [{ value: config.STATUS.pendingGeneralLedger }],
+                [config.FIELD.feishuLastEventId]: ''
+            }),
+            create: jest.fn(({ type }) => {
+                if (type === 'employee') {
+                    return {
+                        run: jest.fn().mockReturnValue({
+                            each: jest.fn((callback) => {
+                                callback({
+                                    getValue: jest.fn(({ name }) => {
+                                        if (name === 'internalid') return '501';
+                                        if (name === 'entityid') return 'EMP001';
+                                        return '';
+                                    })
+                                });
+                                return true;
+                            })
+                        })
+                    };
+                }
+
+                return {
+                    run: jest.fn().mockReturnValue({
+                        each: jest.fn(() => true)
+                    })
+                };
+            })
+        };
+        const { restlet } = loadRestlet({ search, record });
+
+        const result = restlet.post({
+            event_id: 'evt-gl-runtime-node-1',
+            record_id: '1001',
+            instance_code: 'FEISHU-INSTANCE-GL-RUNTIME',
+            node_id: 'APPROVAL_782493_4614729',
+            action: 'APPROVE',
+            operator: {
+                name: '李星月',
+                user_id: 'ou_demo_user'
+            },
+            comment: '同意'
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data.raw_node_id).toBe('APPROVAL_782493_4614729');
+        expect(result.data.node_id).toBe(config.FEISHU_NODE.generalLedger);
+        expect(result.data.node_name).toBe('总账审批');
+        expect(result.data.target_status).toBe(config.STATUS.pendingFinanceManager);
+        expect(result.data.target_status_text).toBe(config.STATUS_TEXT.pendingFinanceManager);
+        expect(commentRecord.setValue).toHaveBeenCalledWith(expect.objectContaining({
+            fieldId: 'custrecord_swc_approval_comments_content',
+            value: '[总账审批通过]：同意'
+        }));
+        expect(record.submitFields).toHaveBeenCalledWith(expect.objectContaining({
+            type: config.RECORD_TYPE,
+            id: '1001',
+            values: expect.objectContaining({
+                [config.FIELD.state]: config.STATUS.pendingFinanceManager,
+                [config.FIELD.feishuLastEventId]: 'evt-gl-runtime-node-1'
+            })
         }));
     });
 
@@ -1009,6 +1710,122 @@ describe('Feishu prepayment approval callback RESTlet demo', () => {
                 [config.FIELD.feishuLastEventId]: 'evt-return-1'
             })
         }));
+    });
+
+    it('treats a finance manager rollback callback with DONE status as returned', () => {
+        const { restlet, config, record, commentRecord } = loadRestlet();
+
+        const result = restlet.post({
+            event_id: 'evt-fm-rollback-1',
+            event_type: 'approval_task',
+            event: {
+                instance_code: 'FEISHU-INSTANCE-FM-ROLLBACK',
+                record_id: '1001',
+                task_id: 'task-finance-manager',
+                task_status: 'DONE',
+                user: {
+                    name: '李星月',
+                    user_id: 'ou_demo_user'
+                }
+            },
+            task_list: [
+                {
+                    id: 'task-finance-manager',
+                    node_id: config.FEISHU_NODE.financeManager
+                }
+            ],
+            timeline: [
+                {
+                    action: 'ROLLBACK',
+                    status: 'DONE',
+                    task_id: 'task-finance-manager',
+                    node_key: config.FEISHU_NODE.financeManager,
+                    comment: 'dfdf'
+                }
+            ]
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data.action).toBe(config.ACTION.return);
+        expect(result.data.target_status).toBe(config.STATUS.returned);
+        expect(commentRecord.setValue).toHaveBeenCalledWith(expect.objectContaining({
+            fieldId: 'custrecord_swc_approval_comments_content',
+            value: '[财务经理审批驳回]：dfdf'
+        }));
+        expect(record.submitFields).toHaveBeenCalledWith(expect.objectContaining({
+            values: expect.objectContaining({
+                [config.FIELD.state]: config.STATUS.returned,
+                [config.FIELD.feishuInstanceCode]: '',
+                [config.FIELD.feishuLastEventId]: 'evt-fm-rollback-1'
+            })
+        }));
+    });
+
+    it('retries failed status writeback five times and sends a Feishu group alert', () => {
+        const config = loadConfig();
+        const commentRecord = {
+            setValue: jest.fn(),
+            save: jest.fn().mockReturnValue('9004')
+        };
+        const record = {
+            create: jest.fn().mockReturnValue(commentRecord),
+            submitFields: jest.fn(() => {
+                throw new Error('submit fields failed');
+            })
+        };
+        const https = {
+            post: jest.fn()
+                .mockReturnValueOnce({ body: JSON.stringify({ code: 0, tenant_access_token: 'tenant-token' }) })
+                .mockReturnValueOnce({ body: JSON.stringify({ code: 0, data: { message_id: 'msg-001' } }) }),
+            get: jest.fn().mockReturnValue({
+                body: JSON.stringify({
+                    code: 0,
+                    data: {
+                        items: [
+                            {
+                                name: 'NS-飞书审批流',
+                                chat_id: 'oc_alert_chat'
+                            }
+                        ]
+                    }
+                })
+            })
+        };
+        const { restlet } = loadRestlet({ record, https });
+
+        const result = restlet.post({
+            event_id: 'evt-retry-alert-1',
+            record_id: '1001',
+            instance_code: 'FEISHU-INSTANCE-ALERT',
+            node_id: config.FEISHU_NODE.departmentManager,
+            action: 'APPROVE',
+            operator: {
+                name: '张三',
+                user_id: 'ou_demo_user'
+            },
+            comment: '同意'
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.message).toContain('已重试5次');
+        expect(record.create).toHaveBeenCalledTimes(1);
+        expect(record.submitFields).toHaveBeenCalledTimes(6);
+        expect(https.post).toHaveBeenNthCalledWith(1, expect.objectContaining({
+            url: 'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
+            body: JSON.stringify({
+                app_id: 'cli_aa9d2362783b5bd6',
+                app_secret: 'app-secret'
+            })
+        }));
+        expect(https.get).toHaveBeenCalledWith(expect.objectContaining({
+            url: expect.stringContaining('/im/v1/chats/search')
+        }));
+        expect(https.post).toHaveBeenNthCalledWith(2, expect.objectContaining({
+            url: 'https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id',
+            body: expect.stringContaining('oc_alert_chat')
+        }));
+        expect(https.post.mock.calls[1][0].body).toContain('NetSuite 飞书审批回写失败预警');
+        expect(https.post.mock.calls[1][0].body).toContain('submit fields failed');
     });
 
     it('ignores withdrawn Feishu callbacks without creating comments or updating status', () => {
