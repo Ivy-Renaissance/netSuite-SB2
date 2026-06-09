@@ -89,7 +89,7 @@ define([], () => {
     // 创建审批实例时，User Event 会先读取当前飞书审批定义，再按控件名称或 custom_id 动态匹配实际控件 ID。
     const FEISHU_WIDGET = {
         documentId: 'widget17803989748480001',
-        recordId: '',
+        recordId: 'widget17806459138600001',
         subsidiary: 'widget17804882691220001',
         vendor: 'widget17805552284650001',
         po: 'widget17804880175290001',
@@ -139,7 +139,7 @@ define([], () => {
             code: 'GENERAL_LEDGER',
             codeAliases: ['GENERAL_LEDGER_APPROVAL', 'GL'],
             name: '总账审批',
-            nameAliases: ['总账', '总账会计', '总账会计审批'],
+            nameAliases: ['总账', '总账审核', '总账会计', '总账会计审批'],
             approveStatus: STATUS.pendingFinanceManager,
             approveStatusText: STATUS_TEXT.pendingFinanceManager,
             rejectStatus: STATUS.rejected,
@@ -233,11 +233,26 @@ define([], () => {
 
     const NODE_BY_CODE = {}
     const NODE_BY_NAME = {}
+    const NODE_BY_STATUS = {}
+    const STATUS_TEXT_BY_ID = {}
+
+    Object.keys(STATUS).forEach((statusKey) => {
+        if (STATUS_TEXT[statusKey]) {
+            STATUS_TEXT_BY_ID[STATUS[statusKey]] = STATUS_TEXT[statusKey]
+        }
+    })
 
     Object.keys(NODE_BY_ID).forEach((nodeId) => {
         const node = NODE_BY_ID[nodeId]
         const codeValues = [node.code].concat(node.codeAliases || [])
         const nameValues = [node.name].concat(node.nameAliases || [])
+        const statusText = STATUS_TEXT_BY_ID[node.currentStatus]
+
+        NODE_BY_STATUS[String(node.currentStatus)] = node
+
+        if (statusText) {
+            NODE_BY_STATUS[normalizeMatchText(statusText)] = node
+        }
 
         codeValues.forEach((codeValue) => {
             const key = normalizeMatchText(codeValue)
@@ -281,9 +296,38 @@ define([], () => {
 
     const getNodeByName = (nodeName) => NODE_BY_NAME[normalizeMatchText(nodeName)] || null
 
-    const getNodeIdByStatus = (status) => STATUS_NODE[Number(status)] || null
+    const normalizeLookupValue = (value) => {
+        if (Array.isArray(value)) {
+            if (!value.length) {
+                return ''
+            }
 
-    const getNodeByStatus = (status) => getNode(getNodeIdByStatus(status))
+            return normalizeLookupValue(value[0])
+        }
+
+        if (value && typeof value === 'object') {
+            return pick(
+                value.value,
+                value.id,
+                value.internalid,
+                value.internalId,
+                value.text,
+                value.name
+            )
+        }
+
+        return value
+    }
+
+    const getNodeIdByStatus = (status) => STATUS_NODE[Number(normalizeLookupValue(status))] || null
+
+    const getNodeByStatus = (status) => {
+        const statusValue = normalizeLookupValue(status)
+
+        return NODE_BY_STATUS[String(statusValue)]
+            || NODE_BY_STATUS[normalizeMatchText(statusValue)]
+            || getNode(getNodeIdByStatus(statusValue))
+    }
 
     const resolveNode = (value) => {
         if (!value) {
@@ -379,6 +423,7 @@ define([], () => {
         STATUS_NODE,
         NODE_BY_CODE,
         NODE_BY_NAME,
+        NODE_BY_STATUS,
         APPROVAL_STATUS_SEQUENCE,
         APPROVAL_NODE_SEQUENCE,
         ACTION,

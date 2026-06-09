@@ -2,7 +2,7 @@ const DEFAULT_APPROVAL_CODE = '306C03CB-85B1-4E66-888C-093ED122FD97'
 
 const FEISHU_WIDGET = {
     documentId: 'widget17803989748480001',
-    recordId: process.env.FEISHU_RECORD_ID_WIDGET_ID || '',
+    recordId: process.env.FEISHU_RECORD_ID_WIDGET_ID || 'widget17806459138600001',
     subsidiary: 'widget17804882691220001',
     vendor: 'widget17805552284650001',
     po: 'widget17804880175290001',
@@ -156,7 +156,7 @@ function normalizeFeishuEvent(body, instanceDetail) {
     const taskId = event.task_id
         || event.taskId
         || event.task && (event.task.id || event.task.task_id || event.task.taskId)
-    const timelineEvent = findTimelineEvent(instanceDetail, taskId)
+    const timelineEvent = findTimelineEvent(instanceDetail, taskId, event, operator)
     const timelineTaskId = getTimelineTaskId(timelineEvent)
     const instanceTask = findTaskFromInstance(instanceDetail, taskId || timelineTaskId)
     const instanceCode = event.instance_code
@@ -250,7 +250,7 @@ function pick(...values) {
 function getStableNodeId(event, instanceTask, timelineEvent, operator) {
     return pick(
         getNodeKey(event),
-        event && pick(event.task_node_key, event.taskNodeKey),
+        event && pick(event.def_key, event.defKey, event.task_node_key, event.taskNodeKey, event.task_def_key, event.taskDefKey),
         event && getNodeKey(event.task),
         getNodeKey(instanceTask),
         getNodeKey(timelineEvent),
@@ -272,6 +272,8 @@ function getNodeKey(value) {
     return value && pick(
         value.node_key,
         value.nodeKey,
+        value.def_key,
+        value.defKey,
         value.task_node_key,
         value.taskNodeKey,
         value.task_def_key,
@@ -307,7 +309,7 @@ function findTaskFromInstance(instanceDetail, taskId) {
     return instanceDetail.task_list.find((task) => String(task.id || task.task_id || task.taskId || '') === String(taskId)) || null
 }
 
-function findTimelineEvent(instanceDetail, taskId) {
+function findTimelineEvent(instanceDetail, taskId, event, operator) {
     if (!instanceDetail || !Array.isArray(instanceDetail.timeline)) {
         return null
     }
@@ -323,18 +325,91 @@ function findTimelineEvent(instanceDetail, taskId) {
         }
     }
 
+    const matchedByNode = findTimelineEventByNode(instanceDetail.timeline, event, operator)
+
+    if (matchedByNode) {
+        return matchedByNode
+    }
+
     if (taskId) {
         return null
     }
 
-    return instanceDetail.timeline
-        .slice()
-        .reverse()
-        .find((item) => isActionableTimelineEvent(item) || isCancelTimelineEvent(item)) || null
+    return getLatestTimelineEvent(instanceDetail.timeline
+        .filter((item) => isActionableTimelineEvent(item) || isCancelTimelineEvent(item)))
 }
 
 function getTimelineTaskId(item) {
     return item && (item.task_id || item.taskId || item.task && (item.task.id || item.task.task_id || item.task.taskId)) || ''
+}
+
+function getTimelineTime(item) {
+    const rawValue = item && (
+        item.operate_time
+        || item.operateTime
+        || item.create_time
+        || item.createTime
+        || item.update_time
+        || item.updateTime
+        || item.time
+    )
+    const numberValue = Number(rawValue)
+
+    return Number.isFinite(numberValue) ? numberValue : 0
+}
+
+function getLatestTimelineEvent(items) {
+    if (!Array.isArray(items) || !items.length) {
+        return null
+    }
+
+    return items
+        .map((item, index) => ({
+            item,
+            index,
+            time: getTimelineTime(item)
+        }))
+        .sort((a, b) => {
+            if (a.time || b.time) {
+                return b.time - a.time
+            }
+
+            return b.index - a.index
+        })[0].item
+}
+
+function findTimelineEventByNode(timeline, event, operator) {
+    const nodeKeys = [
+        getNodeKey(event),
+        event && getNodeKey(event.task),
+        getNodeKey(operator)
+    ].filter(Boolean).map(String)
+    const nodeIds = [
+        event && pick(event.node_id, event.nodeId, event.task_node_id, event.taskNodeId),
+        event && event.task && pick(event.task.node_id, event.task.nodeId, event.task.task_node_id, event.task.taskNodeId),
+        operator && pick(operator.node_id, operator.nodeId, operator.task_node_id, operator.taskNodeId)
+    ].filter(Boolean).map(String)
+    const nodeNames = [
+        getNodeName(event, null, null, null),
+        event && event.task && getNodeName(event.task, null, null, null),
+        operator && getNodeName(operator, null, null, null)
+    ].filter(Boolean).map(normalizeMatchText)
+
+    if (!nodeKeys.length && !nodeIds.length && !nodeNames.length) {
+        return null
+    }
+
+    const matches = timeline.filter((item) => {
+        const itemNodeKey = String(getNodeKey(item) || '')
+        const itemNodeId = String(pick(item && item.node_id, item && item.nodeId, item && item.task_node_id, item && item.taskNodeId) || '')
+        const itemNodeName = normalizeMatchText(getNodeName(null, null, item, null))
+
+        return nodeKeys.indexOf(itemNodeKey) !== -1
+            || nodeIds.indexOf(itemNodeId) !== -1
+            || nodeNames.indexOf(itemNodeName) !== -1
+    })
+
+    return getLatestTimelineEvent(matches)
 }
 
 function isActionableTimelineEvent(item) {

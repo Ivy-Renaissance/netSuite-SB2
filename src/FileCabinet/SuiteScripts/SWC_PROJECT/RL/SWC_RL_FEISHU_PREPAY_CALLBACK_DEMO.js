@@ -535,25 +535,56 @@ define([
             context.nodeId,
             context.node_key,
             context.nodeKey,
+            context.def_key,
+            context.defKey,
+            context.task_def_key,
+            context.taskDefKey,
             event.node_id,
             event.nodeId,
             event.node_key,
             event.nodeKey,
+            event.def_key,
+            event.defKey,
+            event.task_def_key,
+            event.taskDefKey,
             event.task_node_id,
             event.taskNodeId,
+            event.task_node_key,
+            event.taskNodeKey,
             instanceTask && instanceTask.node_id,
             instanceTask && instanceTask.nodeId,
             instanceTask && instanceTask.node_key,
             instanceTask && instanceTask.nodeKey,
+            instanceTask && instanceTask.def_key,
+            instanceTask && instanceTask.defKey,
+            instanceTask && instanceTask.task_def_key,
+            instanceTask && instanceTask.taskDefKey,
             timelineEvent && timelineEvent.node_key,
             timelineEvent && timelineEvent.nodeKey,
             timelineEvent && timelineEvent.node_id,
             timelineEvent && timelineEvent.nodeId,
-            event.task && pick(event.task.node_id, event.task.nodeId, event.task.node_key, event.task.nodeKey),
+            timelineEvent && timelineEvent.def_key,
+            timelineEvent && timelineEvent.defKey,
+            timelineEvent && timelineEvent.task_def_key,
+            timelineEvent && timelineEvent.taskDefKey,
+            event.task && pick(
+                event.task.node_id,
+                event.task.nodeId,
+                event.task.node_key,
+                event.task.nodeKey,
+                event.task.def_key,
+                event.task.defKey,
+                event.task.task_def_key,
+                event.task.taskDefKey
+            ),
             operator.node_id,
             operator.nodeId,
             operator.node_key,
-            operator.nodeKey
+            operator.nodeKey,
+            operator.def_key,
+            operator.defKey,
+            operator.task_def_key,
+            operator.taskDefKey
         )
         const nodeName = pick(
             context.node_name,
@@ -601,7 +632,7 @@ define([
             })
 
         return {
-            eventId: pick(context.event_id, context.eventId, event.event_id, event.uuid, event.log_id),
+            eventId: pick(context.event_id, context.eventId, context.uuid, context.log_id, event.event_id, event.uuid, event.log_id),
             instanceCode,
             recordId: pick(context.record_id, context.recordId, event.record_id, event.recordId),
             nodeId,
@@ -770,6 +801,81 @@ define([
         return null
     }
 
+    const normalizeLookupFieldValue = (value) => {
+        if (Array.isArray(value)) {
+            if (!value.length) {
+                return ''
+            }
+
+            return normalizeLookupFieldValue(value[0])
+        }
+
+        if (value && typeof value === 'object') {
+            return pick(
+                value.value,
+                value.id,
+                value.internalid,
+                value.internalId,
+                value.text,
+                value.name
+            )
+        }
+
+        return value === null || value === undefined ? '' : value
+    }
+
+    const isSameStatus = (actualStatus, expectedStatus) => {
+        const actualValue = normalizeLookupFieldValue(actualStatus)
+        const expectedValue = normalizeLookupFieldValue(expectedStatus)
+        const actualNumber = Number(actualValue)
+        const expectedNumber = Number(expectedValue)
+
+        if (!isNaN(actualNumber) && !isNaN(expectedNumber)) {
+            return actualNumber === expectedNumber
+        }
+
+        return String(actualValue || '') === String(expectedValue || '')
+    }
+
+    const lookupPrepayStatus = (prepayId) => {
+        const fields = search.lookupFields({
+            type: config.RECORD_TYPE,
+            id: prepayId,
+            columns: [
+                config.FIELD.state
+            ]
+        })
+
+        return normalizeLookupFieldValue(fields && fields[config.FIELD.state])
+    }
+
+    const getStatusSequenceIndex = (status) => {
+        const statusValue = Number(normalizeLookupFieldValue(status))
+
+        return config.APPROVAL_STATUS_SEQUENCE.indexOf(statusValue)
+    }
+
+    const isTerminalStatus = (status) => {
+        return isSameStatus(status, config.STATUS.approved)
+            || isSameStatus(status, config.STATUS.rejected)
+            || isSameStatus(status, config.STATUS.returned)
+    }
+
+    const isAlreadyAdvancedPastNode = (currentStatus, node) => {
+        if (!node || isSameStatus(currentStatus, node.currentStatus)) {
+            return false
+        }
+
+        if (isTerminalStatus(currentStatus)) {
+            return true
+        }
+
+        const currentIndex = getStatusSequenceIndex(currentStatus)
+        const nodeIndex = getStatusSequenceIndex(node.currentStatus)
+
+        return currentIndex !== -1 && nodeIndex !== -1 && currentIndex > nodeIndex
+    }
+
     /**
      * 通过飞书 user_id 匹配 NetSuite 员工。
      *
@@ -904,6 +1010,20 @@ define([
                 ignoreMandatoryFields: true
             }
         })
+
+        const savedStatus = lookupPrepayStatus(prepayId)
+
+        log.audit('飞书预付款审批状态回读确认', {
+            prepayId,
+            targetStatus,
+            savedStatus,
+            eventId: payload.eventId,
+            action: payload.action
+        })
+
+        if (savedStatus && !isSameStatus(savedStatus, targetStatus)) {
+            throw new Error('预付款审批状态写入未生效，目标状态=' + targetStatus + '，实际状态=' + savedStatus)
+        }
     }
 
     /**
@@ -951,19 +1071,6 @@ define([
                 throw new Error('未找到对应预付款申请单，record_id=' + payload.recordId + ', instance_code=' + payload.instanceCode)
             }
 
-            if (payload.eventId && prepay.lastEventId === payload.eventId) {
-                return {
-                    code: 200,
-                    success: true,
-                    duplicate: true,
-                    message: '重复事件已忽略',
-                    data: {
-                        event_id: payload.eventId,
-                        ns_record_id: prepay.id
-                    }
-                }
-            }
-
             const node = config.resolveNode({
                 nodeId: payload.nodeId,
                 nodeName: payload.nodeName,
@@ -971,8 +1078,24 @@ define([
                 currentStatus: prepay.state
             })
 
+            log.audit('飞书预付款审批节点解析结果', {
+                eventId: payload.eventId,
+                instanceCode: payload.instanceCode,
+                recordId: payload.recordId,
+                prepayId: prepay.id,
+                prepayState: prepay.state,
+                payloadNodeId: payload.nodeId,
+                payloadNodeName: payload.nodeName,
+                payloadNodeCode: payload.nodeCode,
+                resolvedNodeCode: node && node.code,
+                resolvedNodeName: node && node.name
+            })
+
             if (!node && !isCancelAction) {
-                throw new Error('未配置的飞书节点：' + (payload.nodeId || payload.nodeName || payload.nodeCode || prepay.state || '-'))
+                throw new Error('未配置的飞书节点：' + (payload.nodeId || payload.nodeName || payload.nodeCode || prepay.state || '-')
+                    + '，当前NS状态：' + (prepay.state || '-')
+                    + '，节点名称：' + (payload.nodeName || '-')
+                    + '，节点代码：' + (payload.nodeCode || '-'))
             }
 
             const targetStatus = config.getTargetStatus(node, payload.action)
@@ -980,6 +1103,61 @@ define([
 
             if (!targetStatus) {
                 throw new Error('无法根据节点和动作计算目标状态')
+            }
+
+            if (isAlreadyAdvancedPastNode(prepay.state, node)) {
+                log.audit('飞书预付款审批迟到事件已忽略', {
+                    eventId: payload.eventId,
+                    prepayId: prepay.id,
+                    currentStatus: prepay.state,
+                    nodeCurrentStatus: node.currentStatus,
+                    node: node.name,
+                    action: payload.action,
+                    targetStatus
+                })
+
+                return {
+                    code: 200,
+                    success: true,
+                    ignored: true,
+                    stale: true,
+                    message: '迟到审批事件已忽略，NS单据已流转到后续状态',
+                    data: {
+                        event_id: payload.eventId,
+                        ns_record_id: prepay.id,
+                        current_status: prepay.state,
+                        node_status: node.currentStatus,
+                        target_status: targetStatus,
+                        node_name: node.name
+                    }
+                }
+            }
+
+            const isDuplicateEvent = payload.eventId && prepay.lastEventId === payload.eventId
+
+            if (isDuplicateEvent) {
+                if (isSameStatus(prepay.state, targetStatus) || !isSameStatus(prepay.state, node.currentStatus)) {
+                    return {
+                        code: 200,
+                        success: true,
+                        duplicate: true,
+                        message: '重复事件已忽略',
+                        data: {
+                            event_id: payload.eventId,
+                            ns_record_id: prepay.id,
+                            current_status: prepay.state,
+                            target_status: targetStatus
+                        }
+                    }
+                }
+
+                log.audit('飞书预付款审批重复事件将修复未生效状态', {
+                    eventId: payload.eventId,
+                    prepayId: prepay.id,
+                    currentStatus: prepay.state,
+                    targetStatus,
+                    node: node.name
+                })
             }
 
             const fallbackNode = node || {
@@ -995,7 +1173,9 @@ define([
             let commentId = ''
 
             try {
-                commentId = retryWriteback('创建审批意见', () => createApprovalComment(prepay.id, payload, fallbackNode))
+                if (!isDuplicateEvent) {
+                    commentId = retryWriteback('创建审批意见', () => createApprovalComment(prepay.id, payload, fallbackNode))
+                }
                 retryWriteback('更新预付款审批状态', () => updatePrepayStatus(prepay.id, targetStatus, payload))
             } catch (writebackError) {
                 sendFailureAlert(Object.assign({}, alertDetails, {
